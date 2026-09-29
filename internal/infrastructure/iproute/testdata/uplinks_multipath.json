@@ -1,0 +1,1 @@
+[{"dst":"default","flags":[],"nexthops":[{"gateway":"10.0.0.1","dev":"eth0","weight":1,"flags":[]},{"gateway":"10.1.0.1","dev":"eth1","weight":1,"flags":[]}]}]

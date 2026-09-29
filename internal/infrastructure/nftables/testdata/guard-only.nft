@@ -1,0 +1,84 @@
+table inet vnm {
+	set uplinks {
+		type ifname;
+		elements = {
+			"ens3"
+		}
+	}
+	set exits {
+		type ifname;
+	}
+	set exempt4 {
+		type ipv4_addr;
+		flags interval;
+		elements = {
+			0.0.0.0/8,
+			10.0.0.0/8,
+			100.64.0.0/10,
+			127.0.0.0/8,
+			169.254.0.0/16,
+			172.16.0.0/12,
+			192.0.2.1/32,
+			192.0.2.200/32,
+			192.168.0.0/16,
+			203.0.113.53/32,
+			224.0.0.0/4,
+			240.0.0.0/4
+		}
+	}
+	set exempt6 {
+		type ipv6_addr;
+		flags interval;
+		elements = {
+			::1/128,
+			fc00::/7,
+			fe80::/10,
+			ff00::/8
+		}
+	}
+	set listen_tcp {
+		type inet_service;
+	}
+	set listen_udp {
+		type inet_service;
+	}
+	set dead_exits {
+		type mark;
+	}
+	set dns_ports {
+		type inet_service;
+	}
+	set l_scanners_4 {
+		type ipv4_addr;
+		flags interval;
+		elements = {
+			192.0.2.200/32,
+			203.0.113.66/32
+		}
+	}
+	set l_scanners_6 {
+		type ipv6_addr;
+		flags interval;
+		elements = {
+			2001:db8:666::/48
+		}
+	}
+	counter listen_bypass {}
+	counter blocked {}
+	counter exit_down {}
+	counter g_scanners_4 {}
+	counter g_scanners_6 {}
+	chain guard {
+		type filter hook prerouting priority -160; policy accept;
+		iifname != @uplinks return
+		ct state != new return
+		ip saddr @exempt4 return
+		ip6 saddr @exempt6 return
+		ip saddr @l_scanners_4 counter name g_scanners_4 jump guard_reject
+		ip6 saddr @l_scanners_6 counter name g_scanners_6 jump guard_reject
+	}
+	chain guard_reject {
+		meta l4proto tcp reject with tcp reset
+		reject with icmpx admin-prohibited
+	}
+}

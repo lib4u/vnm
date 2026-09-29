@@ -1,0 +1,95 @@
+# vpn-node-manager policy of a fleet node (/etc/vnm/config.yaml).
+# Specification: docs/vpn-node-manager-tz.md. This file is loaded by the tests,
+# so it can never drift from what the agent accepts.
+
+version: 1
+
+# observe: count what enforce would do, change no traffic — the first day on a
+# node. enforce: the working mode. off: only through `vnm egress off`.
+mode: observe
+
+# Interfaces of the default route; empty means detect.
+uplinks: []
+
+# The Loyalsoldier dataset the fleet's clients use, straight from its releases:
+# each file is verified against the <file>.sha256sum published beside it.
+geo:
+  geoip: https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+  geosite: https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+
+# The resolver behind the domain lists: DNS from downstream interfaces and from
+# the host itself is redirected to it in the kernel, only while it answers — a
+# resolver outage costs only the domain part, never the node its DNS.
+dns:
+  port: 5353
+  upstreams: ["1.1.1.1:53", "1.0.0.1:53"]
+
+exits:
+  - name: warp
+    slot: 0 # fixes mark 0xca6c, table 51820, rules 1000–1001
+    iface: warp
+    conf: /etc/vnm/exits/warp/warp.conf
+    # Cloudflare accepts the same key on several ports; some hosters drop 2408.
+    endpoints:
+      - 162.159.192.1:2408
+      - 162.159.192.1:500
+      - 162.159.192.1:4500
+    health:
+      url: https://www.cloudflare.com/cdn-cgi/trace
+      expect: "warp=(on|plus)"
+    # The last resort when no handshake comes for 15 minutes — a revoked key,
+    # a deleted account — where no restart helps: a new registration, WARP+
+    # license carried over, at most once an hour.
+    renew:
+      command: [/usr/local/bin/vnm, warp, reissue]
+      after: 15m
+      every: 1h
+
+lists:
+  - name: ru_ip
+    ip: ["geoip:ru"]
+    # geoip:ru holds ~25 000 ranges (12 956 IPv4 + 12 157 IPv6 on 2026-09-27).
+    bounds: { min: 5000, max: 100000, max_change: 0.5 }
+  - name: ru_domain
+    domain: ["geosite:category-ru"]
+  - name: ru_suffix
+    suffix: [ru, su, xn--p1ai]
+
+  # Sources the guard refuses (docs/vpn-node-manager-guard-tz.md): the
+  # traffic-guard lists. They publish no .sha256sum, so every copy must parse
+  # as a whole and fit its bounds before it is kept.
+  - name: antiscanner
+    ip: ["url:https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/antiscanner.list"]
+    checksum: none
+    refresh: 24h
+    bounds: { min: 50, max: 5000, max_change: 0.5 }
+  - name: skipa # the «СКИПА» scanners: GRChC AS61280, Sputnik AS197571 …
+    ip: ["url:https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/skipa.list"]
+    checksum: none
+    refresh: 24h
+    bounds: { min: 50, max: 5000, max_change: 0.5 }
+  - name: gov_networks
+    ip: ["url:https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/government_networks.list"]
+    checksum: none
+    refresh: 24h
+    bounds: { min: 2000, max: 50000, max_change: 0.3 }
+
+policy:
+  - lists: [ru_ip, ru_domain, ru_suffix]
+    action: exit:warp
+    fallback: block
+
+# Inbound: new connections from these sources never reach the node, whatever
+# the port, the service or the container behind it. Independent of mode above.
+# off until switched with `vnm guard observe` → `vnm guard enforce`.
+guard:
+  mode: off
+  rules:
+    - lists: [antiscanner, skipa, gov_networks]
+      action: drop
+      log: true
+
+exempt:
+  # REPLACE with the addresses that manage the node (panel, monitoring). 203.0.113.10 is a
+  # documentation address: leaving it here exempts nobody useful.
+  - 203.0.113.10/32

@@ -1,0 +1,24 @@
+# The vnm control loop: keeps the kernel on the planned state, the exits alive
+# and the lists fresh (docs/vpn-node-manager-tz.md §7). Its death changes
+# nothing in the kernel: fail-closed holds without it.
+#
+# A template: `vnm install` fills in the paths of its layout.
+#
+# The boot unit is wanted, not required: an agent that runs after a failed
+# restore is how the node recovers. No RuntimeDirectory= or StateDirectory=:
+# vnm creates its directories itself, where its layout puts them, and systemd
+# would wipe the runtime one on every stop — taking the state lock the CLI may
+# hold and the policy a provisional mode switch keeps for its rollback.
+[Unit]
+Description=vpn-node-manager agent
+Wants=vnm-boot.service network-online.target
+After=vnm-boot.service network-online.target
+
+[Service]
+Type=notify
+ExecStart={{.Binary}} agent -config {{.Config}} -state-dir {{.StateDir}}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

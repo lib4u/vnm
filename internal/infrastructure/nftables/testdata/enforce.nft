@@ -1,0 +1,180 @@
+table inet vnm {
+	set uplinks {
+		type ifname;
+		elements = {
+			"ens3"
+		}
+	}
+	set exits {
+		type ifname;
+		elements = {
+			"warp"
+		}
+	}
+	set exempt4 {
+		type ipv4_addr;
+		flags interval;
+		elements = {
+			0.0.0.0/8,
+			10.0.0.0/8,
+			100.64.0.0/10,
+			127.0.0.0/8,
+			169.254.0.0/16,
+			172.16.0.0/12,
+			192.0.2.1/32,
+			192.0.2.200/32,
+			192.168.0.0/16,
+			203.0.113.53/32,
+			224.0.0.0/4,
+			240.0.0.0/4
+		}
+	}
+	set exempt6 {
+		type ipv6_addr;
+		flags interval;
+		elements = {
+			::1/128,
+			fc00::/7,
+			fe80::/10,
+			ff00::/8
+		}
+	}
+	set listen_tcp {
+		type inet_service;
+		elements = {
+			22,
+			443
+		}
+	}
+	set listen_udp {
+		type inet_service;
+		elements = {
+			8851
+		}
+	}
+	set dead_exits {
+		type mark;
+	}
+	set dns_ports {
+		type inet_service;
+	}
+	set l_ru_ip_4 {
+		type ipv4_addr;
+		flags interval;
+		elements = {
+			198.51.100.0/24
+		}
+	}
+	set l_ru_ip_6 {
+		type ipv6_addr;
+		flags interval;
+		elements = {
+			2001:db8:100::/48
+		}
+	}
+	set l_ru_suffix_d4 {
+		type ipv4_addr;
+	}
+	set l_ru_suffix_d6 {
+		type ipv6_addr;
+	}
+	set l_scanners_4 {
+		type ipv4_addr;
+		flags interval;
+		elements = {
+			192.0.2.200/32,
+			203.0.113.66/32
+		}
+	}
+	set l_scanners_6 {
+		type ipv6_addr;
+		flags interval;
+		elements = {
+			2001:db8:666::/48
+		}
+	}
+	counter listen_bypass {}
+	counter blocked {}
+	counter exit_down {}
+	counter r0_ru_ip_4 {}
+	counter r0_ru_ip_6 {}
+	counter r0_ru_suffix_d4 {}
+	counter r0_ru_suffix_d6 {}
+	counter g_scanners_4 {}
+	counter g_scanners_6 {}
+	chain decide_local {
+		meta l4proto tcp th sport @listen_tcp counter name listen_bypass ct mark set 0x0000ca6a return
+		meta l4proto udp th sport @listen_udp counter name listen_bypass ct mark set 0x0000ca6a return
+		jump decide
+	}
+	chain decide {
+		meta mark & 0x00010000 == 0x00010000 ct mark set 0x0000ca6a return
+		ip daddr @exempt4 ct mark set 0x0000ca6a return
+		ip6 daddr @exempt6 ct mark set 0x0000ca6a return
+		ip daddr @l_ru_ip_4 counter name r0_ru_ip_4 ct mark set 0x0000ca6c return
+		ip6 daddr @l_ru_ip_6 counter name r0_ru_ip_6 ct mark set 0x0000ca6b return
+		ip daddr @l_ru_suffix_d4 counter name r0_ru_suffix_d4 ct mark set 0x0000ca6c return
+		ip6 daddr @l_ru_suffix_d6 counter name r0_ru_suffix_d6 ct mark set 0x0000ca6b return
+		ct mark set 0x0000ca6a
+	}
+	chain prerouting {
+		type filter hook prerouting priority mangle; policy accept;
+		iifname @uplinks return
+		iifname @exits return
+		ct state new ct mark 0 jump decide
+		ct direction original ct mark { 0x0000ca6c } meta mark set ct mark
+	}
+	chain output {
+		type route hook output priority mangle; policy accept;
+		ct state new ct mark 0 jump decide_local
+		ct direction original ct mark @dead_exits counter name exit_down meta l4proto tcp reject with tcp reset
+		ct direction original ct mark @dead_exits counter name exit_down reject with icmpx admin-prohibited
+		ct direction original ct mark { 0x0000ca6c } meta mark set ct mark
+	}
+	chain reject_forward {
+		type filter hook forward priority filter; policy accept;
+		ct direction original ct mark 0x0000ca6b counter name blocked meta l4proto tcp reject with tcp reset
+		ct direction original ct mark 0x0000ca6b counter name blocked reject with icmpx admin-prohibited
+		ct direction original ct mark @dead_exits counter name exit_down meta l4proto tcp reject with tcp reset
+		ct direction original ct mark @dead_exits counter name exit_down reject with icmpx admin-prohibited
+	}
+	chain reject_output {
+		type filter hook output priority filter; policy accept;
+		ct direction original ct mark 0x0000ca6b counter name blocked meta l4proto tcp reject with tcp reset
+		ct direction original ct mark 0x0000ca6b counter name blocked reject with icmpx admin-prohibited
+	}
+	chain clamp {
+		type filter hook postrouting priority mangle; policy accept;
+		oifname @exits tcp flags syn tcp option maxseg size set rt mtu
+	}
+	chain exit_snat {
+		type nat hook postrouting priority srcnat; policy accept;
+		oifname @exits masquerade
+	}
+	chain dns_redirect {
+		type nat hook prerouting priority dstnat; policy accept;
+		iifname @uplinks return
+		iifname @exits return
+		meta l4proto { tcp, udp } th dport @dns_ports redirect to :5353
+	}
+	chain dns_local {
+		type nat hook output priority -100; policy accept;
+		meta skuid 997 return
+		meta l4proto { tcp, udp } th dport @dns_ports redirect to :5353
+	}
+	chain dns_guard {
+		type filter hook input priority filter; policy accept;
+		iifname @uplinks meta l4proto { tcp, udp } th dport 5353 drop
+	}
+	chain guard {
+		type filter hook prerouting priority -160; policy accept;
+		iifname != @uplinks return
+		ct state != new return
+		ip saddr @exempt4 return
+		ip6 saddr @exempt6 return
+		ip saddr @l_scanners_4 limit rate 10/minute burst 20 packets log prefix "vnm-guard scanners: "
+		ip saddr @l_scanners_4 counter name g_scanners_4 drop
+		ip6 saddr @l_scanners_6 limit rate 10/minute burst 20 packets log prefix "vnm-guard scanners: "
+		ip6 saddr @l_scanners_6 counter name g_scanners_6 drop
+	}
+}

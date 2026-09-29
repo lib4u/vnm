@@ -1,0 +1,32 @@
+# The vnm resolver (docs/vpn-node-manager-dns-tz.md): answers DNS redirected
+# from downstream interfaces and the host's own, and puts the addresses of
+# listed domains into the lists' sets. The agent writes its config and restarts
+# it; until the policy uses domain lists there is no config and it does not run.
+#
+# A template: `vnm install` fills in the paths of its layout.
+[Unit]
+Description=vpn-node-manager resolver
+After=vnm-boot.service network.target
+ConditionPathExists={{.ResolverConf}}
+
+[Service]
+Type=notify
+# systemd opens the config as root: the agent's state directory stays closed
+# to the resolver's user.
+StandardInput=file:{{.ResolverConf}}
+ExecStart={{.Binary}} dns serve -config -
+# Its own user: the host's DNS redirect lets exactly its upstream queries out.
+# CAP_NET_ADMIN is for adding addresses to the nft sets, and all it holds.
+User=vnm-dns
+Group=vnm-dns
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

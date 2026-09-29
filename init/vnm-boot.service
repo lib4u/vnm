@@ -1,0 +1,22 @@
+# Re-applies the last good vnm state from disk before the network comes up
+# (docs/vpn-node-manager-tz.md §7.2). No network, no downloads, no planning:
+# whatever a crash left in the kernel, the policy is back before any service
+# can pass traffic. Ordered like the stock nftables.service, and after it: its
+# /etc/nftables.conf starts with `flush ruleset`, which would wipe the restored
+# table.
+#
+# A template: `vnm install` fills in the paths of its layout.
+[Unit]
+Description=vpn-node-manager: restore the last good state
+DefaultDependencies=no
+After=local-fs.target nftables.service
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={{.Binary}} boot -config {{.Config}} -state-dir {{.StateDir}}
+
+[Install]
+WantedBy=multi-user.target
