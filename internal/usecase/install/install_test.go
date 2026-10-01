@@ -235,6 +235,7 @@ func TestPreflight(t *testing.T) {
 	}{
 		{"ubuntu", "24.04", "amd64", true},
 		{"almalinux", "9.7", "amd64", true}, // matched by the major version
+		{"almalinux", "10.1", "amd64", true},
 		{"almalinux", "8.10", "amd64", false},
 		{"debian", "12", "amd64", false},
 		// The pinned wgcf is an x86_64 build.

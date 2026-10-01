@@ -23,7 +23,7 @@ var ErrLicenseNotApplied = errors.New("WARP+ license not applied")
 // matches exactly or by its major number ("9" takes AlmaLinux 9.x).
 var SupportedOS = map[string][]string{
 	"ubuntu":    {"22.04", "24.04", "26.04"},
-	"almalinux": {"9"},
+	"almalinux": {"9", "10"},
 }
 
 func supportedOS(id, version string) bool {
