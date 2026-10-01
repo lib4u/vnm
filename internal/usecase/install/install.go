@@ -24,6 +24,7 @@ var ErrLicenseNotApplied = errors.New("WARP+ license not applied")
 var SupportedOS = map[string][]string{
 	"ubuntu":    {"22.04", "24.04", "26.04"},
 	"almalinux": {"9", "10"},
+	"debian":    {"12", "13"},
 }
 
 func supportedOS(id, version string) bool {
