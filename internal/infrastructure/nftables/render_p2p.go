@@ -97,8 +97,10 @@ func renderP2P(w *writer, p netstate.P2P) {
 
 	// From the internet (§3.1): a proxy's UDP is full-cone, so a swarm's peers
 	// reach the client through the node on their own — an incoming uTP SYN or
-	// DHT query to the node, and anything from a refused peer, never gets
-	// through. The node's own services, on DNS and the web ports, are not
+	// DHT query to the node, and anything from a refused peer to the sockets
+	// the proxy opened for its clients, never gets through. A refused peer is
+	// not refused the node's services: its address may be a client's too — a
+	// carrier's NAT shares one among thousands. DNS and the web ports are not
 	// looked at; replies to what the node opened are not new.
 	w.line(1, "chain %s {", chainP2PIn)
 	w.line(2, "ct direction reply return")
@@ -106,13 +108,15 @@ func renderP2P(w *writer, p netstate.P2P) {
 	w.line(2, "ip6 saddr @%s return", setExempt6)
 	w.line(2, "udp dport { 53, 443 } return")
 	w.line(2, "tcp dport { 53, 80, 443 } return")
-	w.line(2, "ip saddr @%s %s%s", setP2PPeers4, w.count(counterP2PPeer), verdict)
-	w.line(2, "ip6 saddr @%s %s%s", setP2PPeers6, w.count(counterP2PPeer), verdict)
 	for _, s := range p.Signatures {
 		for _, match := range p2pSignatures[s.Name] {
 			w.line(2, "%s %s%s", match, w.count(s.Counter), verdict)
 		}
 	}
+	w.line(2, "tcp dport @%s return", setListenTCP)
+	w.line(2, "udp dport @%s return", setListenUDP)
+	w.line(2, "ip saddr @%s %s%s", setP2PPeers4, w.count(counterP2PPeer), verdict)
+	w.line(2, "ip6 saddr @%s %s%s", setP2PPeers6, w.count(counterP2PPeer), verdict)
 	w.line(1, "}")
 
 	// A banned tunnel client (§3.4): everything, or all but DNS and the web.

@@ -94,14 +94,16 @@ table inet vnm {
 		ip6 saddr @exempt6 return
 		udp dport { 53, 443 } return
 		tcp dport { 53, 80, 443 } return
-		ip saddr @p2p_peers4 counter name p_peer drop
-		ip6 saddr @p2p_peers6 counter name p_peer drop
 		udp length 28 @th,64,8 0x41 @th,72,8 0x00 @th,128,32 0x00000000 counter name p_utp_syn drop
 		meta l4proto udp @th,64,96 0x64313a6164323a696432303a counter name p_dht drop
 		meta l4proto udp @th,64,96 0x64313a7264323a696432303a counter name p_dht drop
 		udp length 24 @th,64,64 0x0000041727101980 @th,128,32 0x00000000 counter name p_udp_tracker drop
 		tcp doff 5 @th,160,128 0x13426974546f7272656e742070726f74 counter name p_bt_handshake drop
 		tcp doff 8 @th,256,128 0x13426974546f7272656e742070726f74 counter name p_bt_handshake drop
+		tcp dport @listen_tcp return
+		udp dport @listen_udp return
+		ip saddr @p2p_peers4 counter name p_peer drop
+		ip6 saddr @p2p_peers6 counter name p_peer drop
 	}
 	chain p2p_banned {
 		counter name p_ban drop
