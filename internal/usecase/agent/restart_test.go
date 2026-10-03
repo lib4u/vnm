@@ -70,6 +70,21 @@ func TestRestartCatchesUpWithoutDrift(t *testing.T) {
 	}
 }
 
+// A new build applies the state anew on its first pass, though the policy
+// did not change: it may render it differently — a chain an old build did not
+// have would otherwise never reach the kernel. A restart of the same build
+// does not.
+func TestUpgradeAppliesAnew(t *testing.T) {
+	r := newRig()
+	r.store.last, r.store.ok = lastGood(t), true
+	r.build("v2")
+	r.pass()
+	r.pass()
+	if len(r.kernel.applies) != 1 || r.kernel.applies[0].Agent != "v2" {
+		t.Fatalf("applies %d after an upgrade", len(r.kernel.applies))
+	}
+}
+
 // Exits the last good state had and the policy no longer has lose their
 // interfaces; an interface the policy still uses is kept.
 func TestRestartRetiresDroppedExits(t *testing.T) {

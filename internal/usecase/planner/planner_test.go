@@ -201,6 +201,37 @@ func TestPlanGuard(t *testing.T) {
 	}
 }
 
+// The p2p part is planned on its own: with the egress and the guard off it
+// still owns the table, and it classifies nothing (P-6).
+func TestPlanP2P(t *testing.T) {
+	in := input()
+	in.Policy.Mode = policy.ModeOff
+	in.Policy.Guard.Mode = policy.ModeOff
+	in.Policy.P2P = policy.P2P{Mode: policy.ModeEnforce, Signatures: []policy.Signature{policy.SignatureUTPSyn, policy.SignatureDHT}}
+	s := plan(t, in)
+	want := netstate.P2P{Signatures: []netstate.P2PSignature{
+		{Name: "utp_syn", Counter: "p_utp_syn"},
+		{Name: "dht", Counter: "p_dht"},
+	}}
+	switch {
+	case s.Empty():
+		t.Fatal("egress and guard off removed the p2p part")
+	case s.Classify.Classifies() || len(s.Classify.Exits) > 0 || len(s.Rules) > 0 || s.DNS.Enabled():
+		t.Fatalf("a p2p-only state classifies: %+v", s)
+	case !reflect.DeepEqual(s.P2P, want):
+		t.Fatalf("p2p = %+v", s.P2P)
+	}
+
+	in.Policy.P2P.Mode = policy.ModeObserve
+	if s := plan(t, in); !s.P2P.Observe {
+		t.Fatal("observe flag not set")
+	}
+	in.Policy.P2P.Mode = policy.ModeOff
+	if s := plan(t, in); !reflect.DeepEqual(s, netstate.State{}) {
+		t.Fatalf("everything off still owns: %+v", s)
+	}
+}
+
 // A guard list that did not resolve guards nothing and blocks nothing else.
 func TestPlanGuardFailsOpenPerList(t *testing.T) {
 	in := input()

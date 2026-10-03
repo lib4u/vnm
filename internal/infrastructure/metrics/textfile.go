@@ -100,6 +100,25 @@ func Render(s agent.Snapshot) string {
 		fmt.Fprintf(&b, "vnm_guard_refused_total{list=%q} %d\n", name, s.Guard.Refused[name])
 	}
 
+	metric("vnm_p2p_mode", "P2P part mode; in observe the refused counts are what enforce would refuse.", "gauge")
+	for _, mode := range policy.Modes {
+		fmt.Fprintf(&b, "vnm_p2p_mode{mode=%q} %d\n", mode, boolValue(s.P2P.Mode == mode))
+	}
+	metric("vnm_p2p_refused_total", "Packets matching a BitTorrent signature the kernel refused, per signature; in observe, would have refused.", "counter")
+	for _, name := range sortedKeys(s.P2P.Refused) {
+		fmt.Fprintf(&b, "vnm_p2p_refused_total{signature=%q} %d\n", name, s.P2P.Refused[name])
+	}
+	if s.P2P.NDPI {
+		metric("vnm_p2p_ndpi_up", "1 while nDPId writes its verdicts to the agent.", "gauge")
+		fmt.Fprintf(&b, "vnm_p2p_ndpi_up %d\n", boolValue(s.P2P.Connected))
+		metric("vnm_p2p_detections_total", "BitTorrent flows nDPI found by packet inspection.", "counter")
+		fmt.Fprintf(&b, "vnm_p2p_detections_total %d\n", s.P2P.Detections)
+		metric("vnm_p2p_peers_total", "Peers refused for a while; in observe, that would have been.", "counter")
+		fmt.Fprintf(&b, "vnm_p2p_peers_total %d\n", s.P2P.Peers)
+		metric("vnm_p2p_bans_total", "Tunnel clients banned for a swarm of peers; in observe, that would have been.", "counter")
+		fmt.Fprintf(&b, "vnm_p2p_bans_total %d\n", s.P2P.Bans)
+	}
+
 	if s.Resolver.Enabled {
 		metric("vnm_resolver_up", "1 while the resolver answers and DNS is redirected to it.", "gauge")
 		fmt.Fprintf(&b, "vnm_resolver_up %d\n", boolValue(s.Resolver.Up))

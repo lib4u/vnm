@@ -59,13 +59,14 @@ type ExitStatus struct {
 }
 
 // Plan builds the desired kernel state: the destination policy while the
-// egress is on, the guard while it is on — each independent of the other.
+// egress is on, the guard and the p2p part while each is on — every part
+// independent of the others.
 func Plan(in Input) (netstate.State, error) {
 	cfg := in.Policy
 	if err := cfg.Validate(); err != nil {
 		return netstate.State{}, err
 	}
-	if !cfg.EgressActive() && !cfg.Guard.Active() {
+	if !cfg.EgressActive() && !cfg.Guard.Active() && !cfg.P2P.Active() {
 		// Nothing on: the orchestrator removes every owned object.
 		return netstate.State{}, nil
 	}
@@ -90,6 +91,9 @@ func Plan(in Input) (netstate.State, error) {
 	}
 	if cfg.Guard.Active() {
 		planGuard(&state, cfg, in.Ranges)
+	}
+	if cfg.P2P.Active() {
+		planP2P(&state, cfg.P2P)
 	}
 	return state, nil
 }
@@ -173,6 +177,22 @@ func planGuard(state *netstate.State, cfg policy.Config, ranges map[string][]net
 
 // guardCounterPrefix names the guard's counters apart from the decisions'.
 const guardCounterPrefix = "g_"
+
+// planP2P adds the p2p part: one refusing rule per signature, in the order the
+// policy names them (p2p ТЗ §3.1).
+func planP2P(state *netstate.State, p policy.P2P) {
+	state.P2P.Observe = p.Mode == policy.ModeObserve
+	state.P2P.BanNonWeb = p.Ban.NonWeb
+	for _, sig := range p.Signatures {
+		state.P2P.Signatures = append(state.P2P.Signatures, netstate.P2PSignature{
+			Name:    sig.String(),
+			Counter: p2pCounterPrefix + sig.String(),
+		})
+	}
+}
+
+// p2pCounterPrefix names the p2p part's counters apart from the others'.
+const p2pCounterPrefix = "p_"
 
 // classify builds the destination sets and the ordered decisions over them.
 // Only lists referenced by a rule become sets.

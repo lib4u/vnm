@@ -140,7 +140,7 @@ func (dr *Doctor) Run(ctx context.Context) []Finding {
 	cfg, _, err := dr.d.Config.Load()
 	valid := err == nil
 	if valid {
-		add("config", LevelOK, "valid, mode %s, guard %s", cfg.Mode, cfg.Guard.Mode)
+		add("config", LevelOK, "valid, mode %s, guard %s, p2p %s", cfg.Mode, cfg.Guard.Mode, cfg.P2P.Mode)
 	} else {
 		add("config", LevelFail, "%v — the last valid policy stays in force", err)
 	}
@@ -332,6 +332,22 @@ func (dr *Doctor) agent(s agent.Snapshot, add adder) {
 		add("guard", LevelWarn, "observe: %d connection attempts would be refused, none is", sum(s.Guard.Refused))
 	default:
 		add("guard", LevelOK, "%s", s.Guard.Mode)
+	}
+
+	switch s.P2P.Mode {
+	case policy.ModeEnforce:
+		add("p2p", LevelOK, "enforce, %d BitTorrent packets refused", sum(s.P2P.Refused))
+	case policy.ModeObserve:
+		add("p2p", LevelWarn, "observe: %d BitTorrent packets would be refused, none is", sum(s.P2P.Refused))
+	default:
+		add("p2p", LevelOK, "%s", s.P2P.Mode)
+	}
+	if s.P2P.NDPI {
+		if s.P2P.Connected {
+			add("p2p ndpi", LevelOK, "nDPId writing; %d BitTorrent flows found, %d peers refused, %d clients banned", s.P2P.Detections, s.P2P.Peers, s.P2P.Bans)
+		} else {
+			add("p2p ndpi", LevelFail, "nDPId is not writing to the agent: encrypted BitTorrent is not caught (is vnm-ndpid running?)")
+		}
 	}
 }
 

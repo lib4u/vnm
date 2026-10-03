@@ -14,6 +14,27 @@ type fileDTO struct {
 	Policy  []ruleDTO `yaml:"policy"`
 	Exempt  []string  `yaml:"exempt"`
 	Guard   guardDTO  `yaml:"guard"`
+	P2P     p2pDTO    `yaml:"p2p"`
+}
+
+type p2pDTO struct {
+	Mode       string   `yaml:"mode"`
+	Signatures []string `yaml:"signatures"`
+	NDPI       *ndpiDTO `yaml:"ndpi"`
+	Ban        banDTO   `yaml:"ban"`
+}
+
+type ndpiDTO struct {
+	Enabled *bool  `yaml:"enabled"`
+	Socket  string `yaml:"socket"`
+	PeerTTL string `yaml:"peer_ttl"`
+}
+
+type banDTO struct {
+	Threshold int    `yaml:"threshold"`
+	Window    string `yaml:"window"`
+	TTL       string `yaml:"ttl"`
+	Scope     string `yaml:"scope"`
 }
 
 type guardDTO struct {

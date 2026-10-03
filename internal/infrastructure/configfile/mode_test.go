@@ -22,6 +22,7 @@ func TestWithModeKeepsTheRestOfTheFile(t *testing.T) {
 	}{
 		{[]string{"mode"}, "mode:", func(c policy.Config) policy.Mode { return c.Mode }},
 		{[]string{"guard", "mode"}, "  mode:", func(c policy.Config) policy.Mode { return c.Guard.Mode }},
+		{[]string{"p2p", "mode"}, "  mode:", func(c policy.Config) policy.Mode { return c.P2P.Mode }},
 	}
 	for _, part := range parts {
 		for _, mode := range []policy.Mode{policy.ModeEnforce, policy.ModeOff, policy.ModeObserve} {

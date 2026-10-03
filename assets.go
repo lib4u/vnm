@@ -25,3 +25,8 @@ var AgentUnit []byte
 //
 //go:embed init/vnm-dns.service
 var DNSUnit []byte
+
+// NDPIUnit runs nDPId for the p2p part, once its binary is placed.
+//
+//go:embed init/vnm-ndpid.service
+var NDPIUnit []byte

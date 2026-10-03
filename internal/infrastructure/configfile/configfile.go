@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -108,7 +109,52 @@ func toDomain(dto fileDTO) (policy.Config, error) {
 		cfg.Rules = append(cfg.Rules, c.rule(i, r))
 	}
 	cfg.Guard = c.guard(dto.Guard)
+	cfg.P2P = c.p2p(dto.P2P)
 	return cfg, errors.Join(c.errs...)
+}
+
+// p2p maps the p2p section. Without a mode it is off, like the guard; without
+// a signature list it refuses every signature there is.
+func (c *converter) p2p(d p2pDTO) policy.P2P {
+	out := policy.P2P{Mode: policy.ModeOff, Signatures: slices.Clone(policy.Signatures)}
+	if d.Mode != "" {
+		out.Mode = c.mode(d.Mode)
+	}
+	if d.NDPI != nil {
+		// A section that is there is on unless it says otherwise.
+		out.NDPI = policy.NDPI{Enabled: d.NDPI.Enabled == nil || *d.NDPI.Enabled, Socket: d.NDPI.Socket}
+		if out.NDPI.Socket == "" {
+			out.NDPI.Socket = policy.DefaultNDPISocket
+		}
+		out.NDPI.PeerTTL = c.duration("p2p ndpi peer_ttl", d.NDPI.PeerTTL, policy.DefaultPeerTTL)
+	}
+	out.Ban = policy.Ban{
+		Threshold: d.Ban.Threshold,
+		Window:    c.duration("p2p ban window", d.Ban.Window, policy.DefaultBanWindow),
+		TTL:       c.duration("p2p ban ttl", d.Ban.TTL, policy.DefaultBanTTL),
+	}
+	if out.Ban.Threshold == 0 {
+		out.Ban.Threshold = policy.DefaultBanThreshold
+	}
+	switch d.Ban.Scope {
+	case "", "all":
+	case "non_web":
+		out.Ban.NonWeb = true
+	default:
+		c.fail("p2p ban scope %q is not all or non_web", d.Ban.Scope)
+	}
+	if d.Signatures != nil {
+		out.Signatures = nil
+		for _, name := range d.Signatures {
+			sig, ok := policy.ParseSignature(name)
+			if !ok {
+				c.fail("p2p signature %q is not one of %v", name, policy.Signatures)
+				continue
+			}
+			out.Signatures = append(out.Signatures, sig)
+		}
+	}
+	return out
 }
 
 // guard maps the guard section. A guard without a mode is off: it is never

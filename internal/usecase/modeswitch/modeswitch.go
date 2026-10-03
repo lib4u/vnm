@@ -1,5 +1,6 @@
 // Package modeswitch switches the mode of a part of the policy — the egress
-// (ТЗ §8) or the guard (guard ТЗ §5): observe, enforce or off.
+// (ТЗ §8), the guard (guard ТЗ §5) or the p2p part (p2p ТЗ §5): observe,
+// enforce or off.
 //
 // A switch edits the policy file; the agent applies it on its next pass. A
 // switch that opens the node's own address to the listed destinations again
@@ -60,6 +61,14 @@ var (
 		Name: "guard",
 		Key:  []string{"guard", "mode"},
 		Mode: func(c policy.Config) policy.Mode { return c.Guard.Mode },
+	}
+	// P2P refuses BitTorrent signatures. Like the guard, lowering it opens
+	// nothing the node relies on, and raising it is what a provisional switch
+	// covers: a signature that matched legitimate traffic.
+	P2P = Part{
+		Name: "p2p",
+		Key:  []string{"p2p", "mode"},
+		Mode: func(c policy.Config) policy.Mode { return c.P2P.Mode },
 	}
 )
 

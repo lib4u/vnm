@@ -242,6 +242,7 @@ type Config struct {
 	// are added to it by the planner.
 	Exempt []netip.Prefix
 	Guard  Guard
+	P2P    P2P
 }
 
 // Exit returns the exit with the given name.

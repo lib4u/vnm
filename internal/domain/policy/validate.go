@@ -46,6 +46,7 @@ func (c Config) Validate() error {
 	c.validateDNS(&p)
 	c.validateRules(&p)
 	c.validateGuard(&p)
+	c.validateP2P(&p)
 	return errors.Join(p...)
 }
 

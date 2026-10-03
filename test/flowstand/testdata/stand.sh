@@ -123,7 +123,7 @@ nft add rule ip stand pre iifname up0 tcp dport 8080 dnat to $CONTAINER:9090
 serve() { "$@" >/dev/null 2>&1 & }
 serve $probe serve $NODE 22 8851,443
 serve nsx inet $probe serve $RU_SITE 80,443 80,443
-serve nsx inet $probe serve $FOREIGN 80 80
+serve nsx inet $probe serve $FOREIGN 80,6881 80,443,6881
 serve nsx inet $probe serve $RU_ON_FOREIGN 80 80
 serve nsx inet $probe serve $RU_ON_FOREIGN2 80 80
 serve nsx inet $probe serve $RU_ON_FOREIGN3 80 80
@@ -217,7 +217,38 @@ report G-5 nsx client $probe tcp $SCANNER 80
 report G-0v6 nsx inet $probe tcp $NODE6 22 --src $FOREIGN6
 report G-1v6 nsx inet $probe tcp $NODE6 22 --src $SCANNER6
 
+# P2P (p2p ТЗ §8): BitTorrent signatures never leave through the uplink, from
+# the node's own processes or from a tunnel client; packets that only resemble
+# one, and the excluded ports, pass.
+# uTP ST_SYN v1: type/ver 0x41, no extension, connection id, timestamp,
+# timestamp_difference 0, window, seq, ack — the 20-byte header alone.
+UTP_SYN=4100abcd00000001000000000010000000010000
+# DHT ping query: d1:ad2:id20:<20 bytes>e1:q4:ping1:t2:aa1:y1:qe
+DHT_PING=$(printf 'd1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe' | od -An -tx1 | tr -d ' \n')
+# UDP tracker connect: protocol id, action 0, transaction id.
+TRACKER=0000041727101980000000001a2b3c4d
+# The plaintext handshake: 19, "BitTorrent protocol", reserved, info hash, peer id.
+BT_HS=$(printf '\x13BitTorrent protocol' | od -An -tx1 | tr -d ' \n')0000000000000000$(printf '%040d' 0)$(printf '%040d' 0)
+# TURN ChannelData on channel 0x4100, 16 bytes of data: its first byte is the
+# uTP SYN's, its fields are not.
+TURN_CD=41000010deadbeefcafebabe0102030405060708
+# STUN binding request: type 0x0001, length 0, magic cookie, transaction id.
+STUN=000100002112a442000102030405060708090a0b
+report P-1 $probe udp $FOREIGN 6881 --payload $UTP_SYN
+report P-1t nsx client $probe udp $FOREIGN 6881 --payload $UTP_SYN
+report P-2 $probe udp $FOREIGN 6881 --payload $DHT_PING
+report P-2t nsx client $probe udp $FOREIGN 6881 --payload $DHT_PING
+report P-3 $probe udp $FOREIGN 6881 --payload $TRACKER
+report P-4 $probe tcp $FOREIGN 6881 --payload $BT_HS
+report P-4t nsx client $probe tcp $FOREIGN 6881 --payload $BT_HS
+report P-N1 $probe udp $FOREIGN 6881 --payload $TURN_CD
+report P-N2 $probe udp $FOREIGN 6881 --payload $STUN
+report P-N3 $probe udp $FOREIGN 6881
+report P-N4 $probe udp $FOREIGN 443 --payload $UTP_SYN
+report P-N5 $probe tcp $FOREIGN 6881
+
 counter() { nft list counter inet vnm "$1" 2>/dev/null | awk '/packets/ {print $2}'; }
+echo "CNT-p2p $(counter p_utp_syn)"
 echo "CNT-decide $(counter r0_ru_ip_4)"
 echo "CNT-listen $(counter listen_bypass)"
 echo "CNT-guard $(counter g_scanners_4)"

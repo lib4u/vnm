@@ -20,6 +20,8 @@ VPN-сервисы на ноде ничего не знают друг о дру
   напрямую. Смерть агента ничего не открывает: правила остаются в ядре.
 - **Guard.** Блок входящих соединений от адресов из блок-листов (сканеры, подсети
   госорганизаций) — до ufw, Docker и всех сервисов.
+- **Блок торрентов (p2p).** Строгие сигнатуры BitTorrent в ядре и вердикты nDPI: загрузка и
+  раздача не идут ни от прокси, ни от клиентов туннелей, рой не достучится до ноды снаружи.
 - **Свой DNS-резолвер** для доменных списков: адреса доменов попадают в наборы ядра в момент
   ответа, так что правило срабатывает, даже если сайт живёт не на «своих» IP.
 - **Базовая настройка сервера** (по желанию): вход только по ключу, fail2ban, сетевые sysctl,
@@ -62,20 +64,81 @@ vnm (CLI) — установка, переключение режимов, ст�
 вернёт прежний режим. Так же устроена настройка SSH в base: потеряли доступ — через 5 минут
 всё откатится.
 
+## Блокировка торрентов (p2p)
+
+Хостеры закрывают серверы за раздачу торрентов, а блок `bittorrent` в Xray ловит только
+открытое рукопожатие. vnm режет BitTorrent на уровне сети, для всех сервисов ноды сразу.
+Подробно — `docs/vpn-node-manager-p2p-tz.md`.
+
+**Два слоя:**
+
+1. **Сигнатуры в ядре** — строгое совпадение полей заголовка, без наивных префиксов (те
+   ловят TURN/WebRTC):
+   - `utp_syn` — uTP ST_SYN: заголовок uTP открыт даже при шифровании MSE, и без SYN
+     соединение с пиром не возникает;
+   - `dht` — запросы и ответы DHT (`d1:ad2:id20:` / `d1:rd2:id20:`);
+   - `udp_tracker` — connect к UDP-трекеру (magic `0x41727101980`);
+   - `bt_handshake` — открытое рукопожатие `\x13BitTorrent protocol` по TCP.
+2. **nDPId** — отдельный демон (`vnm-ndpid`) с libnDPI. Пассивно читает копии пакетов на
+   всех интерфейсах (кроме DNS и 80/443/853) и сообщает агенту вердикты по потокам. Ловит
+   то, чего не видно в одном пакете: шифрованный BitTorrent, uTP посреди потока. Агент кладёт
+   пира из вердикта в набор `p2p_peers` на `peer_ttl` — дальше с ним не говорит никто на ноде.
+   Если клиент туннеля за `window` обращается к `threshold` разным пирам, он сам попадает в
+   `p2p_ban` на `ttl`.
+
+**Где проверяется** (таблица `inet vnm`, приоритет −155: после guard, до egress — отрезанный
+поток не тратит WARP):
+
+| Цепочка | Хук | Что режет |
+|---|---|---|
+| `p2p_local` | output | исходящее процессов ноды (прокси) |
+| `p2p_tunnel` → `p2p` | prerouting | исходящее клиентов туннелей (AmneziaWG и т.п.) |
+| `p2p_tunnel` → `p2p_in` | prerouting, с аплинков | входящее от пиров: UDP прокси принимает пакеты от любого адреса, и рой сам стучится в порт, который прокси открыл клиенту |
+| `p2p_banned` | prerouting | всё (или всё, кроме DNS и веба) от забаненного клиента туннеля |
+
+Никогда не трогаются: ответы на соединения, адреса из `exempt`, DNS и порты 80/443. Наборы
+пиров и банов переживают замену таблицы и перезапуск агента. Пользователю прокси бан не
+грозит — у ноды нет его адреса: режутся пиры и пакеты торрента, остальной VPN у него работает.
+
+**Включение:**
+
+```bash
+# nDPId в комплект не входит (GPL-3.0, отдельный бинарник): nDPId 1.7.0 + libnDPI 6.1,
+# собранный статически, кладётся сюда; без него работает только слой сигнатур
+scp nDPId root@NODE:/usr/local/lib/vnm/nDPId
+
+# в /etc/vnm/config.yaml (полный пример — configs/vnm.yaml):
+#   p2p:
+#     mode: off
+#     signatures: [utp_syn, dht, udp_tracker, bt_handshake]
+#     ndpi: {}
+ssh root@NODE 'systemctl enable --now vnm-ndpid'
+
+ssh root@NODE 'vnm p2p observe -auto-rollback 5m'   # считать, ничего не резать
+ssh root@NODE 'vnm p2p confirm'
+ssh root@NODE 'vnm status | grep ^p2p'              # что было бы отрезано
+ssh root@NODE 'vnm p2p enforce -auto-rollback 5m'   # проверить сервисы, затем confirm
+```
+
+`vnm status` показывает счётчики сигнатур, работает ли nDPId, сколько найдено потоков,
+отвергнуто пиров и забанено клиентов; `journalctl -u vnm-agent | grep "p2p peer"` — каждый
+вердикт с пиром.
+
 ## Что входит в комплект
 
 | Что | Где на ноде |
 |---|---|
 | Бинарник `vnm` (статический, CLI + агент + резолвер) | `/usr/local/bin/vnm` |
 | Конфиг политики | `/etc/vnm/config.yaml` (при установке кладётся `configs/vnm.yaml`, если файла нет) |
-| Юниты `vnm-agent`, `vnm-boot`, `vnm-dns` | `/etc/systemd/system/` (шаблоны в `init/`) |
+| Юниты `vnm-agent`, `vnm-boot`, `vnm-dns`, `vnm-ndpid` | `/etc/systemd/system/` (шаблоны в `init/`) |
+| nDPId для p2p (не входит в репозиторий, кладётся отдельно) | `/usr/local/lib/vnm/nDPId` |
 | Выход WARP: аккаунт и конфиг | `/etc/vnm/exits/warp/` (права 600) |
 | `wgcf` (пин версии и sha256) | `/usr/local/lib/vnm/wgcf` |
 | Состояние агента, кеши списков, бэкапы миграции | `/var/lib/vnm/` |
 | Метрики для node_exporter (textfile) | `/var/lib/node_exporter/textfile_collector/vnm.prom` |
 
 Установщик сам ставит нужные пакеты (`nftables`, `fail2ban` для base) и создаёт системного
-пользователя `vnm-dns` для резолвера.
+пользователей `vnm-dns` для резолвера и `vnm-ndpid` для nDPId.
 
 ## Требования
 
@@ -158,7 +221,8 @@ ssh root@NODE 'vnm guard confirm'                                      # из н
 | `lists` | списки: `ip` (geoip, `url:`, `file:`), `domain`, `suffix`, `extra_cidr`, границы размера, частота обновления |
 | `policy` | правила по порядку, первое совпадение побеждает: `lists → action` (`exit:<имя>`, `block`, `direct`) + `fallback` на случай мёртвого выхода |
 | `guard` | режим и правила блока входящих: `lists → drop/reject`, `log` |
-| `exempt` | адреса, которые не трогают ни политика, ни guard (панель, управление) |
+| `p2p` | блок торрентов: режим, сигнатуры, `ndpi` (вердикты nDPId), `ban` (бан клиентов туннелей по «рою») |
+| `exempt` | адреса, которые не трогают ни политика, ни guard, ни p2p (панель, управление) |
 
 Пример правила:
 
@@ -181,7 +245,8 @@ policy:
 | `vnm warp install` / `plus KEY` / `reissue` | регистрация WARP / ключ WARP+ / новая регистрация |
 | `vnm egress observe\|enforce\|off [-allow-leak] [-auto-rollback 5m]` | режим политики назначений |
 | `vnm guard observe\|enforce\|off [-auto-rollback 5m]` | режим guard |
-| `vnm egress\|guard confirm\|rollback` | оставить или откатить временное переключение |
+| `vnm p2p observe\|enforce\|off [-auto-rollback 5m]` | режим блока торрентов |
+| `vnm egress\|guard\|p2p confirm\|rollback` | оставить или откатить временное переключение |
 | `vnm status` | что агент увидел на последнем проходе: режимы, выходы, списки, счётчики, ошибки |
 | `vnm test IP\|DOMAIN` | как нода поступит с этим назначением |
 | `vnm doctor` | сквозная проверка ноды |
@@ -198,7 +263,10 @@ policy:
 - `vnm_connections_total` — сколько соединений классифицировано каждым правилом;
 - `vnm_guard_refused_total{list}` — сколько отбил guard (в observe — «отбил бы»);
 - `vnm_list_entries`, `vnm_list_age_seconds`, `vnm_list_failed` — состояние списков;
-- `vnm_resolver_up` — работает ли резолвер.
+- `vnm_resolver_up` — работает ли резолвер;
+- `vnm_p2p_mode`, `vnm_p2p_refused_total{signature}` — режим и что отрезали сигнатуры;
+- `vnm_p2p_ndpi_up`, `vnm_p2p_detections_total`, `vnm_p2p_peers_total`, `vnm_p2p_bans_total` —
+  nDPId пишет, сколько найдено потоков, отвергнуто пиров, забанено клиентов.
 
 node_exporter в комплект не входит: чтобы метрики собирались, его нужно поставить на ноду
 отдельно.
@@ -220,5 +288,6 @@ node_exporter в комплект не входит: чтобы метрики �
 - `docs/vpn-node-manager-installer.md` — установщик: base и WARP, миграция со старого WARP.
 - `docs/vpn-node-manager-dns-tz.md` — резолвер доменных списков.
 - `docs/vpn-node-manager-guard-tz.md` — guard.
+- `docs/vpn-node-manager-p2p-tz.md` — блок торрентов: сигнатуры, nDPId, бан клиентов.
 - `docs/vpn-node-manager-tests.md` — приёмочные тесты.
 - `docs/vpn-node-manager-logging-tz.md` — журнал событий (в разработке).

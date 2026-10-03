@@ -7,13 +7,16 @@ so a reply arriving from an unexpected address is dropped and shows up as a
 timeout instead of a false pass.
 
     probe.py serve <addr> <tcp-ports> <udp-ports>
-    probe.py tcp <dst> <port> [--bind PORT] [--src ADDR] [--mark MARK]
-    probe.py udp <dst> <port> [--bind PORT] [--src ADDR] [--mark MARK]
+    probe.py tcp <dst> <port> [--bind PORT] [--src ADDR] [--mark MARK] [--payload HEX]
+    probe.py udp <dst> <port> [--bind PORT] [--src ADDR] [--mark MARK] [--payload HEX]
     probe.py hold <dst> <port> <flag-file>
     probe.py resolve-tcp <dns-server> <name> <port>
 
 resolve-tcp asks <dns-server> for the A record of <name> over plain UDP, as a
 tunnel client does, then connects to the answer.
+
+--payload sends the given bytes instead of "ping": the p2p scenarios send a
+BitTorrent signature, or a packet that only resembles one.
 
 Output of the client modes is one line: "src=<address>" or "err=<reason>".
 """
@@ -74,7 +77,7 @@ def ports(arg):
 SO_MARK = 36
 
 
-def client(kind, dst, port, bind, mark, src=None):
+def client(kind, dst, port, bind, mark, src=None, payload=b"ping"):
     sock_type = socket.SOCK_STREAM if kind == "tcp" else socket.SOCK_DGRAM
     s = socket.socket(family(dst), sock_type)
     s.settimeout(TIMEOUT)
@@ -84,7 +87,7 @@ def client(kind, dst, port, bind, mark, src=None):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((src or ("::" if ":" in dst else "0.0.0.0"), bind))
     s.connect((dst, port))
-    s.send(b"ping")
+    s.send(payload)
     return s.recv(64).decode().strip()
 
 
@@ -152,7 +155,8 @@ def main(argv):
         bind = int(opts.get("--bind", "0"))
         mark = int(opts.get("--mark", "0"), 0)
         src = opts.get("--src")
-        print(client(mode, argv[2], int(argv[3]), bind, mark, src))
+        payload = bytes.fromhex(opts.get("--payload", b"ping".hex()))
+        print(client(mode, argv[2], int(argv[3]), bind, mark, src, payload))
     except Exception as exc:  # noqa: BLE001 — the probe reports, the test judges
         print(f"err={reason(exc)}")
 

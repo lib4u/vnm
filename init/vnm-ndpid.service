@@ -1,0 +1,41 @@
+# nDPId for the p2p part (docs/vpn-node-manager-p2p-tz.md §3.3): classifies
+# flows with libnDPI and writes its verdicts to the agent's socket. Passive: it
+# only reads copies of packets, so traffic never waits on it, and its failure
+# costs only the encrypted BitTorrent it would have caught.
+#
+# nDPId is GPL-3.0 and ships as a binary of its own, never linked into vnm;
+# until it is placed at {{.NDPIBinary}} the unit does not run.
+#
+# It reads every interface ("any"): the uplink shows a proxy's flows, a tunnel's
+# interface shows its clients before masquerading — which client a swarm
+# belongs to. DNS and the web ports are never captured, and no packet is
+# copied to the agent: only flow verdicts.
+#
+# A template: `vnm install` fills in the paths of its layout.
+[Unit]
+Description=vpn-node-manager nDPId (BitTorrent classification)
+After=vnm-agent.service network.target
+ConditionPathExists={{.NDPIBinary}}
+
+[Service]
+# nDPId opens the capture as root, then drops to its own user; the agent's
+# socket, in a directory of its own, lets that user's group in and write.
+ExecStart={{.NDPIBinary}} -i any -c /run/vnm-p2p/ndpid.sock -u vnm-ndpid -g vnm-ndpid -a vnm -p /run/vnm-ndpid/ndpid.pid \
+	-B "not port 53 and not tcp port 80 and not port 443 and not port 853" \
+	-o max-reader-threads=1 -o max-packets-per-flow-to-send=0
+RuntimeDirectory=vnm-ndpid
+AmbientCapabilities=CAP_NET_RAW CAP_SETUID CAP_SETGID
+CapabilityBoundingSet=CAP_NET_RAW CAP_SETUID CAP_SETGID
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=-/run/vnm-p2p
+ProtectHome=yes
+PrivateTmp=yes
+CPUQuota=30%
+MemoryMax=192M
+Nice=10
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

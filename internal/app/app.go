@@ -8,8 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
+	"net/netip"
+	"os/user"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/lib4u/vnm/internal/infrastructure/configfile"
@@ -17,6 +22,7 @@ import (
 	"github.com/lib4u/vnm/internal/infrastructure/iproute"
 	"github.com/lib4u/vnm/internal/infrastructure/listcache"
 	"github.com/lib4u/vnm/internal/infrastructure/metrics"
+	"github.com/lib4u/vnm/internal/infrastructure/ndpid"
 	"github.com/lib4u/vnm/internal/infrastructure/nftables"
 	"github.com/lib4u/vnm/internal/infrastructure/probe"
 	"github.com/lib4u/vnm/internal/infrastructure/renew"
@@ -36,6 +42,7 @@ import (
 	"github.com/lib4u/vnm/internal/usecase/install"
 	"github.com/lib4u/vnm/internal/usecase/lists"
 	"github.com/lib4u/vnm/internal/usecase/modeswitch"
+	"github.com/lib4u/vnm/internal/usecase/p2pwatch"
 )
 
 const (
@@ -235,7 +242,8 @@ func (a *Agent) Close() error {
 }
 
 // NewAgent wires the control loop.
-func NewAgent(p Paths, log *slog.Logger) (*Agent, error) {
+// build is the agent's version.
+func NewAgent(p Paths, log *slog.Logger, build string) (*Agent, error) {
 	run := runner.System{Timeout: commandTimeout}
 	applier, fw := p.Applier()
 
@@ -250,6 +258,7 @@ func NewAgent(p Paths, log *slog.Logger) (*Agent, error) {
 		Config:    configfile.NewSource(p.Config),
 		Kernel:    applier,
 		Store:     statefile.New(p.StateDir),
+		Build:     build,
 		Counters:  fw,
 		Exits:     exits.NewSupervisor(device, probe.New(), renew.New(runner.System{Timeout: renewTimeout}), time.Now),
 		Lists:     lists.NewResolver(cache),
@@ -259,8 +268,57 @@ func NewAgent(p Paths, log *slog.Logger) (*Agent, error) {
 		Listening: sockets.NewReader(p.Proc),
 		Lock:      p.Locker(),
 		Metrics:   publishers{metrics.NewTextfile(p.Metrics), p.Status()},
-		Log:       log,
-		Now:       time.Now,
+		P2P: p2pwatch.New(p2pwatch.Deps{
+			Sets:     &nftables.P2PSets{},
+			Listener: &ndpid.Listener{},
+			Local:    localAddrs(),
+			GID:      groupID(install.NDPIUser),
+			Log:      log,
+			Now:      time.Now,
+		}),
+		Log: log,
+		Now: time.Now,
 	})
 	return &Agent{Agent: loop, device: device}, nil
+}
+
+// groupID is the numeric id of a group, or root's when it does not exist: the
+// socket then takes root only, and nDPId, not yet installed, writes nothing.
+func groupID(name string) int {
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return 0
+	}
+	id, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
+// localAddrs reports whether an address is one of the node's own. The list is
+// read again at most once a minute: addresses rarely change, and a verdict
+// must not wait on a syscall per event.
+func localAddrs() func(netip.Addr) bool {
+	var (
+		mu    sync.Mutex
+		addrs map[netip.Addr]bool
+		read  time.Time
+	)
+	return func(a netip.Addr) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if addrs == nil || time.Since(read) > time.Minute {
+			addrs = map[netip.Addr]bool{}
+			if ifAddrs, err := net.InterfaceAddrs(); err == nil {
+				for _, ia := range ifAddrs {
+					if p, err := netip.ParsePrefix(ia.String()); err == nil {
+						addrs[p.Addr().Unmap()] = true
+					}
+				}
+			}
+			read = time.Now()
+		}
+		return addrs[a.Unmap()]
+	}
 }

@@ -60,8 +60,12 @@ type Deps struct {
 	Listening Listening
 	Lock      Locker
 	Metrics   Metrics
-	Log       *slog.Logger
-	Now       func() time.Time
+	// P2P is optional: without it nDPI's verdicts are not acted on.
+	P2P P2PWatch
+	Log *slog.Logger
+	Now func() time.Time
+	// Build is the agent's version; the state it plans carries it.
+	Build     string
 	Intervals Intervals
 }
 

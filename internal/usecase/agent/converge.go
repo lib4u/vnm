@@ -71,7 +71,7 @@ func (a *Agent) desired(ctx context.Context, statuses []exits.Status) (netstate.
 		}
 		resolver.Up = a.d.Resolver.Up(ctx, a.cfg.DNS.Port)
 	}
-	return planner.Plan(planner.Input{
+	state, err := planner.Plan(planner.Input{
 		Policy:   a.cfg,
 		Ranges:   a.ranges,
 		Domains:  a.domains,
@@ -80,6 +80,11 @@ func (a *Agent) desired(ctx context.Context, statuses []exits.Status) (netstate.
 		Exits:    exitStatus,
 		Resolver: resolver,
 	})
+	if err != nil {
+		return netstate.State{}, err
+	}
+	state.Agent = a.d.Build
+	return state, nil
 }
 
 // apply replaces the kernel's state. A failed apply is rolled back to the last
@@ -95,7 +100,7 @@ func (a *Agent) apply(ctx context.Context, desired netstate.State, statuses []ex
 	a.applied = &desired
 	a.trusted, a.healthSynced, a.resolverSynced = true, true, false
 	a.d.Log.Info("state applied", "reason", why, "mode", a.cfg.Mode.String(), "guard", a.cfg.Guard.Mode.String(),
-		"dead_exits", desired.Health.DeadSlots, "resolver_up", desired.Health.ResolverUp)
+		"p2p", a.cfg.P2P.Mode.String(), "dead_exits", desired.Health.DeadSlots, "resolver_up", desired.Health.ResolverUp)
 	return nil
 }
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"github.com/lib4u/vnm/internal/usecase/p2pwatch"
 	"time"
 
 	"github.com/lib4u/vnm/internal/domain/netstate"
@@ -109,6 +110,28 @@ type GuardSnapshot struct {
 	Refused map[string]uint64
 }
 
+// P2PSnapshot is the p2p part as the agent sees it.
+type P2PSnapshot struct {
+	Mode policy.Mode
+	// Refused counts, per signature, the packets the kernel refused — in
+	// observe, would have refused.
+	Refused map[string]uint64
+	// NDPI is the classifier's side (p2p ТЗ §3.3): whether the policy uses
+	// it, whether nDPId writes to the socket, and what the watcher did.
+	NDPI       bool
+	Connected  bool
+	Detections uint64
+	Peers      uint64
+	Bans       uint64
+}
+
+// P2PWatch acts on nDPI's verdicts beside the loop (p2p ТЗ §3.3–3.4).
+type P2PWatch interface {
+	// Update gives it the policy's p2p part and whether the kernel holds it.
+	Update(ctx context.Context, p policy.P2P, applied bool)
+	Stats() p2pwatch.Stats
+}
+
 // ResolverSnapshot is the resolver as the applied state has it.
 type ResolverSnapshot struct {
 	// Enabled means the policy uses domain lists, so a resolver is wanted.
@@ -130,6 +153,7 @@ type Snapshot struct {
 	Exits         []exits.Status
 	Lists         map[string]ListStatus
 	Guard         GuardSnapshot
+	P2P           P2PSnapshot
 	Resolver      ResolverSnapshot
 	Counters      map[string]uint64
 	ApplyErrors   uint64

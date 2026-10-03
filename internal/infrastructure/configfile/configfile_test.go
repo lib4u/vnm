@@ -151,6 +151,57 @@ func TestGuardIsOffByDefault(t *testing.T) {
 	}
 }
 
+// A file without a p2p section, or a section without a mode, refuses nothing;
+// a section without a signature list refuses every signature there is.
+func TestParseP2P(t *testing.T) {
+	ban := policy.Ban{Threshold: policy.DefaultBanThreshold, Window: policy.DefaultBanWindow, TTL: policy.DefaultBanTTL}
+	tests := []struct {
+		name string
+		data string
+		want policy.P2P
+	}{
+		{"absent", minimal, policy.P2P{Mode: policy.ModeOff, Signatures: policy.Signatures, Ban: ban}},
+		{"mode only", minimal + "p2p:\n  mode: observe\n", policy.P2P{Mode: policy.ModeObserve, Signatures: policy.Signatures, Ban: ban}},
+		{"listed", minimal + "p2p:\n  mode: enforce\n  signatures: [utp_syn, dht]\n",
+			policy.P2P{Mode: policy.ModeEnforce, Signatures: []policy.Signature{policy.SignatureUTPSyn, policy.SignatureDHT}, Ban: ban}},
+		{"ndpi and ban", minimal + "p2p:\n  mode: observe\n  ndpi: {}\n  ban: { threshold: 30, window: 10m, ttl: 1h, scope: non_web }\n",
+			policy.P2P{Mode: policy.ModeObserve, Signatures: policy.Signatures,
+				NDPI: policy.NDPI{Enabled: true, Socket: policy.DefaultNDPISocket, PeerTTL: policy.DefaultPeerTTL},
+				Ban:  policy.Ban{Threshold: 30, Window: 10 * time.Minute, TTL: time.Hour, NonWeb: true}}},
+		{"ndpi off", minimal + "p2p:\n  mode: observe\n  ndpi: { enabled: false }\n",
+			policy.P2P{Mode: policy.ModeObserve, Signatures: policy.Signatures,
+				NDPI: policy.NDPI{Socket: policy.DefaultNDPISocket, PeerTTL: policy.DefaultPeerTTL}, Ban: ban}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := configfile.Parse([]byte(tt.data))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if !reflect.DeepEqual(cfg.P2P, tt.want) {
+				t.Fatalf("p2p = %+v, want %+v", cfg.P2P, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseP2PRejects(t *testing.T) {
+	for name, tail := range map[string]string{
+		"unknown signature": "p2p:\n  mode: observe\n  signatures: [utp, dht]\n",
+		"bad mode":          "p2p:\n  mode: strict\n",
+		"unknown key":       "p2p:\n  mode: observe\n  dpi: true\n",
+		"bad ban scope":     "p2p:\n  mode: observe\n  ban: { scope: some }\n",
+		"ban threshold one": "p2p:\n  mode: observe\n  ban: { threshold: 1 }\n",
+		"relative socket":   "p2p:\n  mode: observe\n  ndpi: { socket: ndpid.sock }\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := configfile.Parse([]byte(minimal + tail)); !errors.Is(err, policy.ErrInvalid) {
+				t.Fatalf("error %v, want ErrInvalid", err)
+			}
+		})
+	}
+}
+
 func TestParseGuardRejects(t *testing.T) {
 	tests := []struct {
 		name    string

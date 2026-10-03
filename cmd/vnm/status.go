@@ -40,6 +40,15 @@ func runStatus(paths app.Paths) error {
 	fmt.Fprintf(w, "mode\t%s\n", s.Mode)
 	fmt.Fprintf(w, "policy\t%s\n", policyLine(s))
 	fmt.Fprintf(w, "guard\t%s\n", guardLine(s.Guard))
+	fmt.Fprintf(w, "p2p\t%s\n", refusedLine(s.P2P.Mode, s.P2P.Refused))
+	if s.P2P.NDPI {
+		state := "nDPId writing"
+		if !s.P2P.Connected {
+			state = "nDPId NOT writing"
+		}
+		fmt.Fprintf(w, "p2p ndpi\t%s; %d BitTorrent flows found, %d peers refused, %d clients banned\n",
+			state, s.P2P.Detections, s.P2P.Peers, s.P2P.Bans)
+	}
 	fmt.Fprintf(w, "agent\t%s\n", agentLine)
 	for _, e := range s.Exits {
 		fmt.Fprintf(w, "exit %s\t%s\n", e.Name, exitLine(e.Present, e.Healthy, e.Alert))
@@ -83,19 +92,22 @@ func exitLine(present, healthy, alert bool) string {
 	}
 }
 
-func guardLine(g agent.GuardSnapshot) string {
-	if len(g.Refused) == 0 {
-		return g.Mode.String()
+func guardLine(g agent.GuardSnapshot) string { return refusedLine(g.Mode, g.Refused) }
+
+// refusedLine is a part's mode and what it refused, per list or signature.
+func refusedLine(mode policy.Mode, refused map[string]uint64) string {
+	if len(refused) == 0 {
+		return mode.String()
 	}
 	verb := "refused"
-	if g.Mode == policy.ModeObserve {
+	if mode == policy.ModeObserve {
 		verb = "would refuse"
 	}
-	parts := make([]string, 0, len(g.Refused))
-	for _, name := range slices.Sorted(maps.Keys(g.Refused)) {
-		parts = append(parts, fmt.Sprintf("%s %d", name, g.Refused[name]))
+	parts := make([]string, 0, len(refused))
+	for _, name := range slices.Sorted(maps.Keys(refused)) {
+		parts = append(parts, fmt.Sprintf("%s %d", name, refused[name]))
 	}
-	return fmt.Sprintf("%s, %s: %s", g.Mode, verb, strings.Join(parts, ", "))
+	return fmt.Sprintf("%s, %s: %s", mode, verb, strings.Join(parts, ", "))
 }
 
 func listLine(l agent.ListStatus) string {

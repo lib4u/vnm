@@ -265,6 +265,11 @@ type State struct {
 	Health Health
 	DNS    DNSState
 	Guard  Guard
+	P2P    P2P
+	// Agent is the build of the agent that planned the state. A new build may
+	// render the same state differently, so it applies the state anew once
+	// instead of taking the old build's table for its own.
+	Agent string `json:",omitempty"`
 }
 
 // Health is the part of the state that follows the agent's checks.

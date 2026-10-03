@@ -16,6 +16,7 @@ func (a *Agent) publish(ctx context.Context, configValid bool, statuses []exits.
 		Exits:         statuses,
 		Lists:         a.listStatuses(),
 		Guard:         GuardSnapshot{Mode: a.cfg.Guard.Mode},
+		P2P:           P2PSnapshot{Mode: a.cfg.P2P.Mode},
 		ApplyErrors:   a.applyErrors,
 		Drift:         a.drift,
 		LastReconcile: a.d.Now(),
@@ -31,10 +32,29 @@ func (a *Agent) publish(ctx context.Context, configValid bool, statuses []exits.
 		}
 		snap.Counters = a.counters
 		snap.Guard.Refused = refused(a.applied.Guard, a.counters)
+		snap.P2P.Refused = p2pRefused(a.applied.P2P, a.counters)
+	}
+	if a.d.P2P != nil {
+		a.d.P2P.Update(ctx, a.cfg.P2P, configValid && a.applied != nil && a.applied.P2P.Active())
+		st := a.d.P2P.Stats()
+		snap.P2P.NDPI = a.cfg.P2P.Active() && a.cfg.P2P.NDPI.Enabled
+		snap.P2P.Connected, snap.P2P.Detections, snap.P2P.Peers, snap.P2P.Bans = st.Connected, st.Detections, st.Peers, st.Bans
 	}
 	if err := a.d.Metrics.Publish(snap); err != nil {
 		a.d.Log.Warn("publish metrics", "error", err)
 	}
+}
+
+// p2pRefused reads the p2p part's counters per signature.
+func p2pRefused(p netstate.P2P, counters map[string]uint64) map[string]uint64 {
+	if !p.Active() {
+		return nil
+	}
+	out := map[string]uint64{}
+	for _, s := range p.Signatures {
+		out[s.Name] += counters[s.Counter]
+	}
+	return out
 }
 
 // refused sums the guard's counters per list.

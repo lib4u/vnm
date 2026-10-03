@@ -276,12 +276,17 @@ func TestPlaceFilesRendersUnitsFromLayout(t *testing.T) {
 	}
 	h := newHost()
 	_, err := newInstaller(h).PlaceFiles(context.Background(), l, install.Assets{
-		Config: vnm.DefaultConfig, BootUnit: vnm.BootUnit, AgentUnit: vnm.AgentUnit, DNSUnit: vnm.DNSUnit,
+		Config: vnm.DefaultConfig, BootUnit: vnm.BootUnit, AgentUnit: vnm.AgentUnit, DNSUnit: vnm.DNSUnit, NDPIUnit: vnm.NDPIUnit,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for unit, want := range map[string][]string{
+		install.NDPIUnit: {
+			"ConditionPathExists=/opt/vnm/lib/vnm/nDPId",
+			"ExecStart=/opt/vnm/lib/vnm/nDPId -i any -c /run/vnm-p2p/ndpid.sock -u vnm-ndpid -g vnm-ndpid",
+			"not port 53 and not tcp port 80 and not port 443",
+		},
 		install.BootUnit:  {"ExecStart=/opt/vnm/bin/vnm boot -config /opt/vnm/etc/vnm.yaml -state-dir /opt/vnm/state"},
 		install.AgentUnit: {"ExecStart=/opt/vnm/bin/vnm agent -config /opt/vnm/etc/vnm.yaml -state-dir /opt/vnm/state"},
 		install.DNSUnit: {

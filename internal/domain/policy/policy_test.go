@@ -59,6 +59,15 @@ func TestValidateRejects(t *testing.T) {
 		{"health url without host", func(c *policy.Config) { c.Exits[0].Health.URL, _ = url.Parse("https:warp") }, "must be https with a host"},
 		{"plain http health url", func(c *policy.Config) { c.Exits[0].Health.URL, _ = url.Parse("http://www.cloudflare.com/") }, "must be https with a host"},
 		{"guard without mode", func(c *policy.Config) { c.Guard.Mode = policy.ModeUnknown }, "guard: mode is not set"},
+		{"p2p without mode", func(c *policy.Config) {
+			c.P2P = policy.P2P{Signatures: policy.Signatures}
+		}, "p2p: mode is not set"},
+		{"p2p signature twice", func(c *policy.Config) {
+			c.P2P = policy.P2P{Mode: policy.ModeObserve, Signatures: []policy.Signature{policy.SignatureDHT, policy.SignatureDHT}}
+		}, "signature dht is named more than once"},
+		{"p2p unknown signature", func(c *policy.Config) {
+			c.P2P = policy.P2P{Mode: policy.ModeObserve, Signatures: []policy.Signature{policy.SignatureUnknown}}
+		}, "p2p signature 0"},
 		{"renew with a relative command", func(c *policy.Config) {
 			c.Exits[0].Renew = &policy.Renew{Command: []string{"vnm", "warp", "reissue"}, After: time.Hour, Every: time.Hour}
 		}, "absolute path"},

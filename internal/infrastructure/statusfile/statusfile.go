@@ -57,6 +57,7 @@ type snapshotDTO struct {
 	Exits         []exitDTO          `json:"exits"`
 	Lists         map[string]listDTO `json:"lists"`
 	Guard         guardDTO           `json:"guard"`
+	P2P           p2pDTO             `json:"p2p"`
 	Resolver      resolverDTO        `json:"resolver"`
 	Counters      map[string]uint64  `json:"counters"`
 	ApplyErrors   uint64             `json:"apply_errors"`
@@ -85,6 +86,16 @@ type guardDTO struct {
 	Refused map[string]uint64 `json:"refused,omitempty"`
 }
 
+type p2pDTO struct {
+	Mode       string            `json:"mode"`
+	Refused    map[string]uint64 `json:"refused,omitempty"`
+	NDPI       bool              `json:"ndpi,omitempty"`
+	Connected  bool              `json:"ndpi_connected,omitempty"`
+	Detections uint64            `json:"detections,omitempty"`
+	Peers      uint64            `json:"peers,omitempty"`
+	Bans       uint64            `json:"bans,omitempty"`
+}
+
 type resolverDTO struct {
 	Enabled bool `json:"enabled"`
 	Up      bool `json:"up"`
@@ -99,6 +110,8 @@ func toDTO(s agent.Snapshot) snapshotDTO {
 		Exits:         make([]exitDTO, 0, len(s.Exits)),
 		Lists:         map[string]listDTO{},
 		Guard:         guardDTO{Mode: s.Guard.Mode.String(), Refused: s.Guard.Refused},
+		P2P: p2pDTO{Mode: s.P2P.Mode.String(), Refused: s.P2P.Refused, NDPI: s.P2P.NDPI, Connected: s.P2P.Connected,
+			Detections: s.P2P.Detections, Peers: s.P2P.Peers, Bans: s.P2P.Bans},
 		Resolver:      resolverDTO{Enabled: s.Resolver.Enabled, Up: s.Resolver.Up},
 		Counters:      s.Counters,
 		ApplyErrors:   s.ApplyErrors,
@@ -139,6 +152,16 @@ func fromDTO(dto snapshotDTO) (agent.Snapshot, error) {
 		return agent.Snapshot{}, err
 	}
 	s.Guard.Refused = dto.Guard.Refused
+	// A status written before the p2p part existed has none: it was off.
+	s.P2P.Mode = policy.ModeOff
+	if dto.P2P.Mode != "" {
+		if s.P2P.Mode, err = parseMode(dto.P2P.Mode); err != nil {
+			return agent.Snapshot{}, err
+		}
+	}
+	s.P2P.Refused = dto.P2P.Refused
+	s.P2P.NDPI, s.P2P.Connected = dto.P2P.NDPI, dto.P2P.Connected
+	s.P2P.Detections, s.P2P.Peers, s.P2P.Bans = dto.P2P.Detections, dto.P2P.Peers, dto.P2P.Bans
 	if len(dto.Lists) > 0 {
 		s.Lists = map[string]agent.ListStatus{}
 	}

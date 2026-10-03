@@ -71,6 +71,40 @@ var observed = []expectation{
 	{"G-3", fromMgmt, "G-3 holds in observe"},
 }
 
+// p2pRefused are the p2p scenarios with the part in enforce, whatever the
+// egress and the guard do (p2p ТЗ §8).
+var p2pRefused = []expectation{
+	// A local UDP packet dropped on the output hook fails its send at once:
+	// the proxy learns the flow is closed instead of waiting on it.
+	{"P-1", "err=EPERM", "P-1: a uTP ST_SYN from the node never leaves"},
+	{"P-1t", "err=timeout", "P-1: a uTP ST_SYN from a tunnel client never leaves"},
+	{"P-2", "err=EPERM", "P-1: a DHT query from the node never leaves"},
+	{"P-2t", "err=timeout", "P-1: a DHT query from a tunnel client never leaves"},
+	{"P-3", "err=EPERM", "P-1: a UDP tracker connect never leaves"},
+	{"P-4", "err=timeout", "P-1: a plaintext BitTorrent handshake from the node never leaves"},
+	{"P-4t", "err=timeout", "P-1: a plaintext BitTorrent handshake from a tunnel client never leaves"},
+}
+
+// p2pPassed are the scenarios that must pass whatever the p2p part's mode:
+// packets that only resemble a signature, and the excluded ports (P-4).
+var p2pPassed = []expectation{
+	{"P-N1", viaUplink, "TURN ChannelData shares the uTP SYN's first byte, not its fields"},
+	{"P-N2", viaUplink, "a STUN binding request is not a signature"},
+	{"P-N3", viaUplink, "plain UDP to a BitTorrent port passes"},
+	{"P-N4", viaUplink, "P-4: UDP 443 is never looked at, whatever it carries"},
+	{"P-N5", viaUplink, "plain TCP to a BitTorrent port passes"},
+}
+
+// p2pAllowed are the p2p scenarios with the part in observe or off: nothing
+// is refused.
+var p2pAllowed = []expectation{
+	{"P-1", viaUplink, "P-6: the p2p part in observe or off refuses nothing"},
+	{"P-1t", viaUplink, "P-6: the p2p part in observe or off refuses nothing"},
+	{"P-2", viaUplink, "P-6: the p2p part in observe or off refuses nothing"},
+	{"P-3", viaUplink, "P-6: the p2p part in observe or off refuses nothing"},
+	{"P-4", viaUplink, "P-6: the p2p part in observe or off refuses nothing"},
+}
+
 type expectation struct {
 	id   string
 	want string
@@ -128,10 +162,12 @@ var egressOff = []expectation{
 }
 
 func TestFlowModelEnforce(t *testing.T) {
-	results := runStand(t, policy.ModeEnforce, policy.ModeEnforce)
+	results := runStand(t, policy.ModeEnforce, policy.ModeEnforce, policy.ModeEnforce)
 	check(t, results, enforce)
 	check(t, results, guarded)
-	requireCounted(t, results, "CNT-decide", "CNT-listen", "CNT-guard")
+	check(t, results, p2pRefused)
+	check(t, results, p2pPassed)
+	requireCounted(t, results, "CNT-decide", "CNT-listen", "CNT-guard", "CNT-p2p")
 
 	// I-2 without an agent: a local socket picked its route before the mark
 	// rerouted it, so the kernel drops the packet silently and the client
@@ -142,18 +178,30 @@ func TestFlowModelEnforce(t *testing.T) {
 }
 
 func TestFlowModelObserve(t *testing.T) {
-	results := runStand(t, policy.ModeObserve, policy.ModeObserve)
+	results := runStand(t, policy.ModeObserve, policy.ModeObserve, policy.ModeObserve)
 	check(t, results, observe)
 	check(t, results, observed)
-	requireCounted(t, results, "CNT-decide", "CNT-listen", "CNT-guard")
+	check(t, results, p2pAllowed)
+	check(t, results, p2pPassed)
+	requireCounted(t, results, "CNT-decide", "CNT-listen", "CNT-guard", "CNT-p2p")
 }
 
 // G-7: the guard stands alone when the egress is off.
 func TestFlowModelGuardOnly(t *testing.T) {
-	results := runStand(t, policy.ModeOff, policy.ModeEnforce)
+	results := runStand(t, policy.ModeOff, policy.ModeEnforce, policy.ModeOff)
 	check(t, results, egressOff)
 	check(t, results, guarded)
+	check(t, results, p2pAllowed)
 	requireCounted(t, results, "CNT-guard")
+}
+
+// P-6: the p2p part stands alone when the egress and the guard are off.
+func TestFlowModelP2POnly(t *testing.T) {
+	results := runStand(t, policy.ModeOff, policy.ModeOff, policy.ModeEnforce)
+	check(t, results, egressOff)
+	check(t, results, p2pRefused)
+	check(t, results, p2pPassed)
+	requireCounted(t, results, "CNT-p2p")
 }
 
 func check(t *testing.T, results map[string]string, want []expectation) {
@@ -176,7 +224,7 @@ func requireCounted(t *testing.T, results map[string]string, ids ...string) {
 
 // runStand plans the state for the stand's node, renders it and runs
 // stand.sh, returning its observations by scenario id.
-func runStand(t *testing.T, egress, guard policy.Mode) map[string]string {
+func runStand(t *testing.T, egress, guard, p2p policy.Mode) map[string]string {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("the flow stand takes seconds; skipped in -short")
@@ -197,6 +245,7 @@ func runStand(t *testing.T, egress, guard policy.Mode) map[string]string {
 	cfg := testsupport.Policy()
 	cfg.Mode = egress
 	cfg.Guard.Mode = guard
+	cfg.P2P = policy.P2P{Mode: p2p, Signatures: policy.Signatures}
 	cfg.Uplinks = []string{"up0"}
 	in := testsupport.PlanInput()
 	in.Policy = cfg

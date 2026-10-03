@@ -1,0 +1,124 @@
+table inet vnm {
+	set uplinks {
+		type ifname;
+		elements = {
+			"ens3"
+		}
+	}
+	set exits {
+		type ifname;
+	}
+	set exempt4 {
+		type ipv4_addr;
+		flags interval;
+		elements = {
+			0.0.0.0/8,
+			10.0.0.0/8,
+			100.64.0.0/10,
+			127.0.0.0/8,
+			169.254.0.0/16,
+			172.16.0.0/12,
+			192.0.2.1/32,
+			192.0.2.200/32,
+			192.168.0.0/16,
+			203.0.113.53/32,
+			224.0.0.0/4,
+			240.0.0.0/4
+		}
+	}
+	set exempt6 {
+		type ipv6_addr;
+		flags interval;
+		elements = {
+			::1/128,
+			fc00::/7,
+			fe80::/10,
+			ff00::/8
+		}
+	}
+	set listen_tcp {
+		type inet_service;
+	}
+	set listen_udp {
+		type inet_service;
+	}
+	set dead_exits {
+		type mark;
+	}
+	set dns_ports {
+		type inet_service;
+	}
+	set p2p_peers4 {
+		type ipv4_addr;
+		flags timeout;
+	}
+	set p2p_peers6 {
+		type ipv6_addr;
+		flags timeout;
+	}
+	set p2p_ban4 {
+		type ipv4_addr;
+		flags timeout;
+	}
+	set p2p_ban6 {
+		type ipv6_addr;
+		flags timeout;
+	}
+	counter listen_bypass {}
+	counter blocked {}
+	counter exit_down {}
+	counter p_utp_syn {}
+	counter p_dht {}
+	counter p_udp_tracker {}
+	counter p_bt_handshake {}
+	counter p_peer {}
+	counter p_ban {}
+	chain p2p_local {
+		type filter hook output priority -155; policy accept;
+		oifname "lo" return
+		jump p2p
+	}
+	chain p2p_tunnel {
+		type filter hook prerouting priority -155; policy accept;
+		iifname @uplinks jump p2p_in
+		iifname @uplinks return
+		iifname @exits return
+		fib daddr type local return
+		ip saddr @p2p_ban4 jump p2p_banned
+		ip6 saddr @p2p_ban6 jump p2p_banned
+		jump p2p
+	}
+	chain p2p_in {
+		ct direction reply return
+		ip saddr @exempt4 return
+		ip6 saddr @exempt6 return
+		udp dport { 53, 443 } return
+		tcp dport { 53, 80, 443 } return
+		ip saddr @p2p_peers4 counter name p_peer drop
+		ip6 saddr @p2p_peers6 counter name p_peer drop
+		udp length 28 @th,64,8 0x41 @th,72,8 0x00 @th,128,32 0x00000000 counter name p_utp_syn drop
+		meta l4proto udp @th,64,96 0x64313a6164323a696432303a counter name p_dht drop
+		meta l4proto udp @th,64,96 0x64313a7264323a696432303a counter name p_dht drop
+		udp length 24 @th,64,64 0x0000041727101980 @th,128,32 0x00000000 counter name p_udp_tracker drop
+		tcp doff 5 @th,160,128 0x13426974546f7272656e742070726f74 counter name p_bt_handshake drop
+		tcp doff 8 @th,256,128 0x13426974546f7272656e742070726f74 counter name p_bt_handshake drop
+	}
+	chain p2p_banned {
+		counter name p_ban drop
+	}
+	chain p2p {
+		ct direction reply return
+		ip daddr @exempt4 return
+		ip6 daddr @exempt6 return
+		udp dport { 53, 443 } return
+		tcp dport { 53, 80, 443 } return
+		ip daddr @p2p_peers4 counter name p_peer drop
+		ip6 daddr @p2p_peers6 counter name p_peer drop
+		udp length 28 @th,64,8 0x41 @th,72,8 0x00 @th,128,32 0x00000000 counter name p_utp_syn drop
+		meta l4proto udp @th,64,96 0x64313a6164323a696432303a counter name p_dht drop
+		meta l4proto udp @th,64,96 0x64313a7264323a696432303a counter name p_dht drop
+		udp length 24 @th,64,64 0x0000041727101980 @th,128,32 0x00000000 counter name p_udp_tracker drop
+		tcp doff 5 @th,160,128 0x13426974546f7272656e742070726f74 counter name p_bt_handshake drop
+		tcp doff 8 @th,256,128 0x13426974546f7272656e742070726f74 counter name p_bt_handshake drop
+	}
+}

@@ -238,7 +238,14 @@ func newRig() *rig {
 		now:     time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC),
 	}
 	r.ref = &refresher{updated: r.now.Add(-50 * time.Hour)}
+	r.build("v1")
+	return r
+}
+
+// build starts the rig's agent anew as the given build, with the rig's parts.
+func (r *rig) build(version string) {
 	r.agent = agent.New(agent.Deps{
+		Build:  version,
 		Config: r.cfg, Kernel: r.kernel, Store: r.store, Counters: r.kernel, Exits: r.exits,
 		Lists: r.lists, Resolver: r.dns, Refresher: r.ref, Uplinks: host{}, Listening: host{},
 		Lock: r.lock, Metrics: r.metrics,
@@ -248,7 +255,6 @@ func newRig() *rig {
 			Check: 5 * time.Millisecond, Refresh: time.Hour,
 		},
 	})
-	return r
 }
 
 // run runs the loop until cond holds or a second passes.

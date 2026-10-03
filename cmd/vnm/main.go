@@ -10,7 +10,9 @@
 //	                          switch the policy's mode; leaving enforce needs -allow-leak
 //	vnm guard observe|enforce|off [-auto-rollback 5m]
 //	                          switch the inbound guard's mode
-//	vnm egress|guard confirm|rollback
+//	vnm p2p observe|enforce|off [-auto-rollback 5m]
+//	                          switch the BitTorrent refusal's mode
+//	vnm egress|guard|p2p confirm|rollback
 //	                          keep or undo a provisional switch
 //	vnm status                what the agent saw on its last pass
 //	vnm test IP|DOMAIN        what the node does with a destination
@@ -39,7 +41,7 @@ import (
 // version is stamped at build time with -ldflags "-X main.version=…".
 var version = "dev"
 
-const usage = "usage: vnm install|base|warp|egress|guard|lists|status|test|doctor|agent|boot|dns|version … (see the package doc)"
+const usage = "usage: vnm install|base|warp|egress|guard|p2p|lists|status|test|doctor|agent|boot|dns|version … (see the package doc)"
 
 func main() {
 	err := run(os.Args[1:])
@@ -90,7 +92,7 @@ func run(args []string) error {
 		return runBase(ctx, args)
 	case "warp":
 		return runWarp(ctx, args)
-	case "egress", "guard":
+	case "egress", "guard", "p2p":
 		return runSwitch(ctx, cmd, args)
 	case "dns":
 		return runDNS(ctx, args)
@@ -118,7 +120,7 @@ func pathFlags(name string) (*flag.FlagSet, *app.Paths) {
 
 func runAgent(ctx context.Context, paths app.Paths) error {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("service", "vnm-agent", "version", version)
-	agent, err := app.NewAgent(paths, log)
+	agent, err := app.NewAgent(paths, log, version)
 	if err != nil {
 		return err
 	}

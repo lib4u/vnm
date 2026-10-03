@@ -24,9 +24,10 @@ var switchable = map[string]struct {
 }{
 	"egress": {modeswitch.Egress, func(s agent.Snapshot) policy.Mode { return s.Mode }},
 	"guard":  {modeswitch.Guard, func(s agent.Snapshot) policy.Mode { return s.Guard.Mode }},
+	"p2p":    {modeswitch.P2P, func(s agent.Snapshot) policy.Mode { return s.P2P.Mode }},
 }
 
-// runSwitch runs `vnm egress|guard observe|enforce|off|confirm|rollback`.
+// runSwitch runs `vnm egress|guard|p2p observe|enforce|off|confirm|rollback`.
 func runSwitch(ctx context.Context, command string, args []string) error {
 	target := switchable[command]
 	usage := fmt.Errorf("usage: vnm %s observe|enforce|off [-auto-rollback 5m] | confirm | rollback", command)

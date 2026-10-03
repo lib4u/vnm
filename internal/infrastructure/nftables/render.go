@@ -65,6 +65,9 @@ func render(s netstate.State, f Features) string {
 	w := &writer{f: f}
 	w.line(0, "table %s %s {", TableFamily, TableName)
 	renderSets(w, c)
+	if s.P2P.Active() {
+		renderP2PSets(w)
+	}
 	renderCounters(w, s)
 	if c.Classifies() {
 		renderDecide(w, c)
@@ -78,6 +81,9 @@ func render(s netstate.State, f Features) string {
 	}
 	if s.Guard.Active() {
 		renderGuard(w, s.Guard)
+	}
+	if s.P2P.Active() {
+		renderP2P(w, s.P2P)
 	}
 	w.line(0, "}")
 	return w.String()
@@ -150,6 +156,12 @@ func counters(s netstate.State) []string {
 	}
 	for _, r := range s.Guard.Rules {
 		names = append(names, r.Counter)
+	}
+	for _, sig := range s.P2P.Signatures {
+		names = append(names, sig.Counter)
+	}
+	if s.P2P.Active() {
+		names = append(names, counterP2PPeer, counterP2PBan)
 	}
 	return names
 }

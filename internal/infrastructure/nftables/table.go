@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/lib4u/vnm/internal/domain/netstate"
@@ -57,6 +58,7 @@ type inventory struct {
 type setShape struct {
 	typ      string
 	interval bool
+	timeout  bool
 }
 
 func (f *Firewall) inventory(ctx context.Context) (inventory, error) {
@@ -76,7 +78,7 @@ func (f *Firewall) inventory(ctx context.Context) (inventory, error) {
 			if err := json.Unmarshal(item.Set.Type, &typ); err != nil {
 				typ = string(item.Set.Type) // a concatenation: never one of ours to keep
 			}
-			inv.sets[item.Set.Name] = setShape{typ: typ, interval: slices.Contains(item.Set.Flags, "interval")}
+			inv.sets[item.Set.Name] = setShape{typ: typ, interval: slices.Contains(item.Set.Flags, "interval"), timeout: slices.Contains(item.Set.Flags, "timeout")}
 		}
 	}
 	return inv, nil
@@ -101,7 +103,7 @@ func replaceScript(s netstate.State, inv inventory, f Features) string {
 	for _, c := range inv.chains {
 		w.line(0, "delete chain %s %s %s", TableFamily, TableName, c)
 	}
-	keep := keptSets(s.Classify.Sets)
+	keep := keptSets(s)
 	for _, name := range sortedNames(inv.sets) {
 		if want, ok := keep[name]; !ok || want != inv.sets[name] {
 			w.line(0, "delete set %s %s %s", TableFamily, TableName, name)
@@ -116,14 +118,18 @@ func replaceScript(s netstate.State, inv inventory, f Features) string {
 	return w.String() + render(s, f) + HealthScript(s.Health)
 }
 
-// keptSets are the sets a replacement keeps with their elements: the dynamic
-// ones, filled at runtime. Every other set is rewritten from the state.
-func keptSets(sets []netstate.AddrSet) map[string]setShape {
+// keptSets are the sets a replacement keeps with their elements: the ones
+// filled at runtime — the resolver's, and the p2p part's peers and bans. Every
+// other set is rewritten from the state.
+func keptSets(s netstate.State) map[string]setShape {
 	keep := map[string]setShape{}
-	for _, s := range sets {
-		if s.Dynamic {
-			keep[SetName(s.Name)] = setShape{typ: addrType(s.Family)}
+	for _, set := range s.Classify.Sets {
+		if set.Dynamic {
+			keep[SetName(set.Name)] = setShape{typ: addrType(set.Family)}
 		}
+	}
+	if s.P2P.Active() {
+		maps.Copy(keep, p2pSetShapes)
 	}
 	return keep
 }

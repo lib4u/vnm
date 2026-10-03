@@ -41,11 +41,16 @@ const (
 	BootUnit  = "vnm-boot.service"
 	AgentUnit = "vnm-agent.service"
 	DNSUnit   = "vnm-dns.service"
+	NDPIUnit  = "vnm-ndpid.service"
 )
 
 // ResolverUser is the system user vnm-dns.service runs as: its own, so that
 // the host's DNS redirect lets exactly its upstream queries through.
 const ResolverUser = "vnm-dns"
+
+// NDPIUser is the system user nDPId drops to; its group may write to the
+// agent's socket.
+const NDPIUser = "vnm-ndpid"
 
 // Deps are the installer's collaborators.
 type Deps struct {
@@ -84,6 +89,12 @@ type Layout struct {
 	ConfigMode os.FileMode
 }
 
+// NDPIBinary is where the nDPId binary is placed, beside the layout's binary
+// tree: /usr/local/bin/vnm → /usr/local/lib/vnm/nDPId.
+func (l Layout) NDPIBinary() string {
+	return filepath.Join(filepath.Dir(filepath.Dir(l.Binary)), "lib", "vnm", "nDPId")
+}
+
 // ResolverConf is the config the agent writes for the resolver unit.
 func (l Layout) ResolverConf() string {
 	return filepath.Join(l.StateDir, "dns", "resolver.json")
@@ -102,6 +113,7 @@ type Assets struct {
 	BootUnit  []byte
 	AgentUnit []byte
 	DNSUnit   []byte
+	NDPIUnit  []byte
 }
 
 // Preflight refuses a machine outside SupportedOS and SupportedArch before
@@ -159,7 +171,7 @@ func (in *Installer) PlaceFiles(ctx context.Context, l Layout, a Assets) ([]stri
 	}
 
 	unitsChanged := false
-	for name, src := range map[string][]byte{BootUnit: a.BootUnit, AgentUnit: a.AgentUnit, DNSUnit: a.DNSUnit} {
+	for name, src := range map[string][]byte{BootUnit: a.BootUnit, AgentUnit: a.AgentUnit, DNSUnit: a.DNSUnit, NDPIUnit: a.NDPIUnit} {
 		data, err := RenderUnit(name, src, l)
 		if err != nil {
 			return nil, err
@@ -337,7 +349,10 @@ func (in *Installer) AllowExitForwarding(ctx context.Context, ifaces []string) (
 // already running, so a new binary takes over.
 func (in *Installer) Start(ctx context.Context) error {
 	wasActive := in.svc.Active(ctx, AgentUnit)
-	if err := in.svc.EnableNow(ctx, BootUnit, AgentUnit, DNSUnit); err != nil {
+	if err := in.host.EnsureSystemUser(ctx, NDPIUser); err != nil {
+		return fmt.Errorf("user %s: %w", NDPIUser, err)
+	}
+	if err := in.svc.EnableNow(ctx, BootUnit, AgentUnit, DNSUnit, NDPIUnit); err != nil {
 		return err
 	}
 	if wasActive {

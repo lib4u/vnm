@@ -89,6 +89,22 @@ guard:
       action: drop
       log: true
 
+# BitTorrent (docs/vpn-node-manager-p2p-tz.md): packets matching a strict
+# signature are dropped both ways — leaving from the node's own processes and
+# tunnel clients, and arriving from peers on the uplinks (a proxy's UDP takes
+# packets from anyone). Replies, exempt addresses, DNS and the web ports are
+# never touched. Independent of mode and guard above.
+# off until switched with `vnm p2p observe` → `vnm p2p enforce`.
+p2p:
+  mode: off
+  signatures: [utp_syn, dht, udp_tracker, bt_handshake]
+  # nDPId verdicts (encrypted BitTorrent): runs only once its binary is placed
+  # at /usr/local/lib/vnm/nDPId; refused peers stay refused for peer_ttl.
+  # ndpi: {peer_ttl: 10m}
+  # A tunnel client talking to `threshold` distinct peers within `window` is
+  # banned for `ttl`; scope non_web keeps its DNS and web ports open.
+  # ban: {threshold: 20, window: 5m, ttl: 30m, scope: all}
+
 exempt:
   # REPLACE with the addresses that manage the node (panel, monitoring). 203.0.113.10 is a
   # documentation address: leaving it here exempts nobody useful.

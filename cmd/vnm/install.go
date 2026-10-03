@@ -124,7 +124,7 @@ func runInstall(ctx context.Context, args []string) error {
 		return fmt.Errorf("tools: %w", err)
 	}
 	changed, err := in.PlaceFiles(ctx, f.paths.Layout(), install.Assets{
-		Config: vnm.DefaultConfig, BootUnit: vnm.BootUnit, AgentUnit: vnm.AgentUnit, DNSUnit: vnm.DNSUnit,
+		Config: vnm.DefaultConfig, BootUnit: vnm.BootUnit, AgentUnit: vnm.AgentUnit, DNSUnit: vnm.DNSUnit, NDPIUnit: vnm.NDPIUnit,
 	})
 	if err != nil {
 		return fmt.Errorf("files: %w", err)
