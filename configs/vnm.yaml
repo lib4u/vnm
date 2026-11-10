@@ -54,6 +54,10 @@ lists:
     domain: ["geosite:category-ru"]
   - name: ru_suffix
     suffix: [ru, su, xn--p1ai]
+  # IP lookup and geolocation services (v2fly category-ip-geo-detect): they
+  # see the exit's address, not the node's.
+  - name: ip_detect
+    domain: ["geosite:category-ip-geo-detect"]
 
   # Sources the guard refuses (docs/vpn-node-manager-guard-tz.md): the
   # traffic-guard lists. They publish no .sha256sum, so every copy must parse
@@ -75,7 +79,7 @@ lists:
     bounds: { min: 2000, max: 50000, max_change: 0.3 }
 
 policy:
-  - lists: [ru_ip, ru_domain, ru_suffix]
+  - lists: [ru_ip, ru_domain, ru_suffix, ip_detect]
     action: exit:warp
     fallback: block
 
