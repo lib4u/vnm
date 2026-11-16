@@ -24,7 +24,7 @@ func TestRoundTrip(t *testing.T) {
 		},
 		Guard:         agent.GuardSnapshot{Mode: policy.ModeObserve, Refused: map[string]uint64{"scanners": 3}},
 		P2P:           agent.P2PSnapshot{Mode: policy.ModeEnforce, Refused: map[string]uint64{"utp_syn": 7}},
-		Resolver:      agent.ResolverSnapshot{Enabled: true, Up: true},
+		Resolver:      agent.ResolverSnapshot{Enabled: true, Failover: true, UDPDropped: 5},
 		Counters:      map[string]uint64{"r0_ru_ip_4": 12},
 		ApplyErrors:   1,
 		Drift:         2,

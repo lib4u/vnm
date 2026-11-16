@@ -165,7 +165,22 @@ type Classify struct {
 	// ResolverUID is the user the resolver queries its upstreams as: the
 	// host's redirect lets its packets through, or it would ask itself.
 	ResolverUID uint32
+	// Failover is the verdict of every new IPv4 connection no decision
+	// matched while the resolver does not answer (FailoverActive); the zero
+	// Verdict means none. Without the resolver the domain lists learn no
+	// address, so any IPv4 destination may be a listed domain's: it leaves
+	// the way the policy sends those domains, never from the node's own
+	// address. DNS itself is not failed over: it must keep working while the
+	// exit is dead too, or the exit's probe could not resolve its host.
+	Failover Verdict
 }
+
+// HasFailover reports whether IPv4 is failed over while the resolver does not
+// answer.
+func (c Classify) HasFailover() bool { return c.Failover != Verdict{} }
+
+// FailoverActive reports whether the health fails IPv4 over.
+func (c Classify) FailoverActive(h Health) bool { return c.HasFailover() && !h.ResolverUp }
 
 // DNSState is the resolver part of the state; the zero value means no
 // resolver runs.
@@ -282,7 +297,9 @@ type State struct {
 //     fails the traffic even when no agent is running.
 //
 // DNS is redirected to the resolver only while ResolverUp holds: a resolver
-// that died must not take the node's DNS down with it.
+// that died must not take the node's DNS down with it. While it does not
+// hold, IPv4 is failed over (Classify.Failover): no address a listed domain
+// may have leaves from the node's own address.
 type Health struct {
 	// DeadSlots are the slots of exits declared dead, in ascending order.
 	DeadSlots []int

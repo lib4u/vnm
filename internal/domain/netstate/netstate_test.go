@@ -69,3 +69,24 @@ func TestNormalizeUnmaps4In6(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+// IPv4 is failed over exactly while a failover is planned and the resolver
+// does not answer.
+func TestFailoverActive(t *testing.T) {
+	planned := Classify{Failover: VerdictExit(0)}
+	for _, tt := range []struct {
+		name string
+		c    Classify
+		h    Health
+		want bool
+	}{
+		{"resolver down", planned, Health{}, true},
+		{"resolver down, exit dead", planned, Health{DeadSlots: []int{0}}, true},
+		{"resolver up", planned, Health{ResolverUp: true}, false},
+		{"nothing planned", Classify{}, Health{}, false},
+	} {
+		if got := tt.c.FailoverActive(tt.h); got != tt.want {
+			t.Errorf("%s: FailoverActive = %t, want %t", tt.name, got, tt.want)
+		}
+	}
+}

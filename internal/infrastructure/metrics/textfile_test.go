@@ -24,7 +24,7 @@ func snapshot() agent.Snapshot {
 		},
 		Guard:         agent.GuardSnapshot{Mode: policy.ModeObserve, Refused: map[string]uint64{"scanners": 9}},
 		P2P:           agent.P2PSnapshot{Mode: policy.ModeEnforce, Refused: map[string]uint64{"utp_syn": 4}},
-		Resolver:      agent.ResolverSnapshot{Enabled: true},
+		Resolver:      agent.ResolverSnapshot{Enabled: true, Failover: true, UDPDropped: 41},
 		Counters:      map[string]uint64{"r0_ru_ip_4": 12, "listen_bypass": 3},
 		LastReconcile: time.Unix(1790000000, 0),
 	}
@@ -47,6 +47,8 @@ func TestRender(t *testing.T) {
 		`vnm_p2p_mode{mode="enforce"} 1` + "\n",
 		`vnm_p2p_refused_total{signature="utp_syn"} 4` + "\n",
 		"vnm_resolver_up 0\n",
+		"vnm_resolver_failover 1\n",
+		"vnm_resolver_udp_dropped_total 41\n",
 		`vnm_connections_total{counter="r0_ru_ip_4"} 12` + "\n",
 		"vnm_last_reconcile_timestamp_seconds 1790000000\n",
 	} {

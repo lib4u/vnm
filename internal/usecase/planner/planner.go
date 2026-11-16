@@ -120,6 +120,9 @@ func planEgress(state *netstate.State, in Input) error {
 	if dns.Enabled() {
 		c.ResolverUID = in.Resolver.UID
 		state.Health.ResolverUp = in.Resolver.Up
+		if !c.Observe {
+			c.Failover = failover(sets, decisions)
+		}
 	}
 	healthy := map[int]bool{}
 	for _, e := range cfg.ExitsBySlot() {
@@ -251,6 +254,25 @@ func listSets(list policy.List, ranges []netip.Prefix) []netstate.AddrSet {
 		)
 	}
 	return out
+}
+
+// failover is the verdict of IPv4 the domain lists cannot see while the
+// resolver does not answer: that of the first IPv4 decision on a dynamic set
+// which is not direct — the way the policy sends the domains whose addresses
+// the resolver would have learnt, by the precedence of its rules. A direct
+// one is skipped: failing over is about never leaving from the node's own
+// address. None means no failover: no domain list keeps anything off it.
+func failover(sets []netstate.AddrSet, decisions []netstate.Decision) netstate.Verdict {
+	dynamic := map[string]bool{}
+	for _, s := range sets {
+		dynamic[s.Name] = s.Dynamic
+	}
+	for _, d := range decisions {
+		if d.Family == netstate.IPv4 && dynamic[d.Set] && d.Verdict != netstate.VerdictDirect {
+			return d.Verdict
+		}
+	}
+	return netstate.Verdict{}
 }
 
 // resolver plans the resolver that fills the dynamic sets: one domain set per

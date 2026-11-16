@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lib4u/vnm/internal/domain/netstate"
+	"github.com/lib4u/vnm/internal/domain/policy"
 	"github.com/lib4u/vnm/internal/testsupport"
 	"github.com/lib4u/vnm/internal/usecase/apply"
 )
@@ -187,6 +188,26 @@ func TestRestoreAppliesLastGoodWithoutRoutes(t *testing.T) {
 	}
 	if slices.Contains(k.ops, "check") {
 		t.Fatal("restore must not depend on anything but the stored state")
+	}
+}
+
+// The boot health takes the resolver for down: in enforce IPv4 is failed over
+// into the exit, itself taken for dead, until the agent sees both — nothing
+// leaves directly in the meantime. Observe fails nothing over.
+func TestRestoreFailsOverInEnforce(t *testing.T) {
+	for _, mode := range []policy.Mode{policy.ModeEnforce, policy.ModeObserve} {
+		k, s, a := setup(t)
+		in := testsupport.PlanInput()
+		in.Policy.Mode = mode
+		good := testsupport.MustPlan(t, in)
+		s.state = &good
+		if err := a.Restore(context.Background()); err != nil {
+			t.Fatalf("%s: Restore: %v", mode, err)
+		}
+		h, c := k.table.Health, k.table.Classify
+		if h.ResolverUp || c.FailoverActive(h) != (mode == policy.ModeEnforce) {
+			t.Fatalf("%s: boot resolver up %t, failover active %t", mode, h.ResolverUp, c.FailoverActive(h))
+		}
 	}
 }
 

@@ -102,6 +102,52 @@ func TestRenderObserveDecidesOnlyDirect(t *testing.T) {
 	}
 }
 
+// DNS goes to the resolver only through the health set, in both chains, in
+// every mode: a dead resolver must not take the node's DNS down with it.
+func TestRenderDNSRedirect(t *testing.T) {
+	const want = "meta l4proto { tcp, udp } th dport @dns_ports redirect to :5353"
+	for _, mode := range []policy.Mode{policy.ModeEnforce, policy.ModeObserve} {
+		out := nftables.Render(planned(t, mode))
+		if n := strings.Count(out, " redirect to "); n != 2 || strings.Count(out, want) != 2 {
+			t.Errorf("%s: want 2 redirects %q (transit and host):\n%s", mode, want, out)
+		}
+	}
+}
+
+// While the health says the resolver is down, enforce sends IPv4 no decision
+// matched through the failover exit — after every decision, before the
+// direct default, DNS excepted; observe fails nothing over.
+func TestRenderFailover(t *testing.T) {
+	out := nftables.Render(planned(t, policy.ModeEnforce))
+	decide := out[strings.Index(out, "chain decide {"):]
+	decide = decide[:strings.Index(decide, "\n\t}")]
+	lines := strings.Split(strings.TrimSpace(decide), "\n")
+	n := len(lines)
+	for i, want := range []string{
+		"meta nfproto @failover meta l4proto { tcp, udp } th dport 53 ct mark set 0x0000ca6a return",
+		"meta nfproto @failover counter name resolver_failover ct mark set 0x0000ca6c return",
+		"ct mark set 0x0000ca6a",
+	} {
+		if got := strings.TrimSpace(lines[n-3+i]); got != want {
+			t.Errorf("decide line %d from the end = %q, want %q", 3-i, got, want)
+		}
+	}
+	if out := nftables.Render(planned(t, policy.ModeObserve)); strings.Contains(out, "@failover") {
+		t.Errorf("observe fails over:\n%s", out)
+	}
+	for _, health := range []struct {
+		h    netstate.Health
+		want string
+	}{
+		{netstate.Health{}, "add element inet vnm failover { ipv4 }"},
+		{netstate.Health{ResolverUp: true}, "add element inet vnm dns_ports { 53 }"},
+	} {
+		if got := nftables.HealthScript(health.h); !strings.Contains(got, health.want) || !strings.Contains(got, "flush set inet vnm failover") {
+			t.Errorf("health %+v:\n%s", health.h, got)
+		}
+	}
+}
+
 // A table that only guards, or only refuses BitTorrent, classifies nothing: no
 // chain may touch a connection's mark.
 func TestRenderGuardOnlyLeavesMarksAlone(t *testing.T) {

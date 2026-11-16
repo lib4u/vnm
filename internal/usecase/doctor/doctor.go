@@ -318,9 +318,12 @@ func (dr *Doctor) agent(s agent.Snapshot, add adder) {
 	}
 
 	if s.Resolver.Enabled {
-		if s.Resolver.Up {
+		switch {
+		case s.Resolver.Up:
 			add("resolver", LevelOK, "answers, DNS redirected to it")
-		} else {
+		case s.Resolver.Failover:
+			add("resolver", LevelWarn, "not answering: DNS goes where it was sent, all IPv4 goes through the exit")
+		default:
 			add("resolver", LevelWarn, "not answering: DNS goes where it was sent, domain lists are not filled")
 		}
 	}

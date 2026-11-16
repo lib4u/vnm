@@ -97,8 +97,10 @@ type p2pDTO struct {
 }
 
 type resolverDTO struct {
-	Enabled bool `json:"enabled"`
-	Up      bool `json:"up"`
+	Enabled    bool   `json:"enabled"`
+	Up         bool   `json:"up"`
+	Failover   bool   `json:"failover,omitempty"`
+	UDPDropped uint64 `json:"udp_dropped,omitempty"`
 }
 
 func toDTO(s agent.Snapshot) snapshotDTO {
@@ -112,7 +114,7 @@ func toDTO(s agent.Snapshot) snapshotDTO {
 		Guard:         guardDTO{Mode: s.Guard.Mode.String(), Refused: s.Guard.Refused},
 		P2P: p2pDTO{Mode: s.P2P.Mode.String(), Refused: s.P2P.Refused, NDPI: s.P2P.NDPI, Connected: s.P2P.Connected,
 			Detections: s.P2P.Detections, Peers: s.P2P.Peers, Bans: s.P2P.Bans},
-		Resolver:      resolverDTO{Enabled: s.Resolver.Enabled, Up: s.Resolver.Up},
+		Resolver:      resolverDTO{Enabled: s.Resolver.Enabled, Up: s.Resolver.Up, Failover: s.Resolver.Failover, UDPDropped: s.Resolver.UDPDropped},
 		Counters:      s.Counters,
 		ApplyErrors:   s.ApplyErrors,
 		Drift:         s.Drift,
@@ -138,7 +140,7 @@ func fromDTO(dto snapshotDTO) (agent.Snapshot, error) {
 		ConfigValid:   dto.ConfigValid,
 		PolicyApplied: dto.PolicyApplied,
 		ListsCurrent:  dto.ListsCurrent,
-		Resolver:      agent.ResolverSnapshot{Enabled: dto.Resolver.Enabled, Up: dto.Resolver.Up},
+		Resolver:      agent.ResolverSnapshot{Enabled: dto.Resolver.Enabled, Up: dto.Resolver.Up, Failover: dto.Resolver.Failover, UDPDropped: dto.Resolver.UDPDropped},
 		Counters:      dto.Counters,
 		ApplyErrors:   dto.ApplyErrors,
 		Drift:         dto.Drift,

@@ -136,7 +136,12 @@ var enforce = []expectation{
 	{"D-3b", viaExit, "the same address, once resolved as an RU domain, goes through the exit"},
 	{"D-4", "err=timeout", "the resolver is closed on the uplink: no open resolver"},
 	{"D-5", viaExit, "I-1: the host's own DNS is redirected too, and the resolver's upstream queries are not"},
-	{"D-6", viaUplink, "with the resolver down, DNS is not redirected: the node keeps resolving on its own"},
+	{"D-6", viaExit, "resolver gone: the host resolves past it, and an RU domain it never saw is failed over into the exit"},
+	{"D-7", viaExit, "resolver gone: a client resolves past it, and any IPv4 destination is failed over into the exit"},
+	{"D-8", viaExit, "resolver gone: the host's IPv4 is failed over into the exit, never direct"},
+	{"D-8r", viaExit, "resolver gone: a listed destination keeps its exit"},
+	{"D-9", "err=ECONNREFUSED", "resolver and exit gone: DNS still answers (the reset is the connection's), the connection is refused, never direct"},
+	{"D-10", "err=ECONNREFUSED", "resolver and exit gone: the host's IPv4 is refused at once, never direct"},
 	{"FC-1", "err=ECONNREFUSED", "I-2: exit declared dead — a local connection is refused at once"},
 	{"FC-2", "err=ECONNREFUSED", "I-2: exit declared dead — a downstream connection is refused at once"},
 	{"FC-3", viaUplink, "I-4: with the exit dead, foreign traffic is untouched"},
@@ -152,6 +157,9 @@ var observe = []expectation{
 	{"F-2", ruClient, "I-3 holds in observe"},
 	{"F-4", ruClient, "I-3 holds in observe"},
 	{"V6-1", viaUplink6, "observe changes no IPv6 traffic either"},
+	{"D-6", viaUplink, "observe: the resolver gone, the host resolves past it and nothing is failed over"},
+	{"D-7", viaUplink, "observe: the resolver gone, a client resolves past it and nothing is failed over"},
+	{"D-9", viaUplink, "observe: neither a dead resolver nor a dead exit changes traffic"},
 }
 
 // egressOff is the destination policy lifted: RU goes out directly.
@@ -262,6 +270,10 @@ func runStand(t *testing.T, egress, guard, p2p policy.Mode) map[string]string {
 	}
 	write(t, filepath.Join(dir, "vnm.nft"), nftables.Script(state))
 	write(t, filepath.Join(dir, "routing.sh"), routingScript(state))
+	allDead := netstate.Health{DeadSlots: planner.DeadSlots(state.Classify.Exits, nil)}
+	write(t, filepath.Join(dir, "health-up.nft"), nftables.HealthScript(state.Health))
+	write(t, filepath.Join(dir, "health-down.nft"), nftables.HealthScript(netstate.Health{DeadSlots: state.Health.DeadSlots}))
+	write(t, filepath.Join(dir, "health-dead.nft"), nftables.HealthScript(allDead))
 	conf, err := resolver.Config(state.DNS, state.Classify.Uplinks).Encode()
 	if err != nil {
 		t.Fatal(err)

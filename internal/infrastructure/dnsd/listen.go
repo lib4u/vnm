@@ -162,7 +162,8 @@ func (u udp6) write(b []byte, from net.IP, to net.Addr) error {
 
 // serveUDP answers datagrams. One that arrived on an uplink, or without the
 // packet info that tells where it arrived, is dropped; so is one over the
-// in-flight limit — the client asks again.
+// in-flight limit — the client asks again — and it is counted. The host's
+// CHAOS queries are answered before the limit: they need no upstream.
 func (s *Server) serveUDP(ctx context.Context, u udpConn) error {
 	buf := make([]byte, 65535)
 	for {
@@ -180,9 +181,16 @@ func (s *Server) serveUDP(ctx context.Context, u udpConn) error {
 		if dst == nil || s.uplinks.hasIndex(ifIndex) {
 			continue
 		}
+		if fromHost(src) {
+			if reply := s.answerHost(buf[:n]); reply != nil {
+				s.writeUDP(ctx, u, reply, dst, src)
+				continue
+			}
+		}
 		select {
 		case s.udp <- struct{}{}:
 		default:
+			s.udpDropped.Add(1)
 			s.log.warn("udp busy", "too many queries in flight; dropping")
 			continue
 		}
@@ -190,12 +198,23 @@ func (s *Server) serveUDP(ctx context.Context, u udpConn) error {
 		go func() {
 			defer func() { <-s.udp }()
 			if reply := s.answer(ctx, req, false); reply != nil {
-				if err := u.write(reply, dst, src); err != nil && ctx.Err() == nil {
-					s.log.warn("udp write", "udp write failed", "err", err)
-				}
+				s.writeUDP(ctx, u, reply, dst, src)
 			}
 		}()
 	}
+}
+
+func (s *Server) writeUDP(ctx context.Context, u udpConn, reply []byte, from net.IP, to net.Addr) {
+	if err := u.write(reply, from, to); err != nil && ctx.Err() == nil {
+		s.log.warn("udp write", "udp write failed", "err", err)
+	}
+}
+
+// fromHost reports whether a datagram was sent from a loopback address: by a
+// process of the host asking the resolver directly, as the agent's probe does.
+func fromHost(src net.Addr) bool {
+	a, ok := src.(*net.UDPAddr)
+	return ok && a.IP.IsLoopback()
 }
 
 // serveTCP accepts connections. One made to an address of an uplink is closed

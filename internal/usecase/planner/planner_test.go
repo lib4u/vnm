@@ -338,11 +338,51 @@ func TestPlanResolver(t *testing.T) {
 	}
 }
 
+// While the resolver does not answer, IPv4 no list matched goes the way the
+// policy sends its domain lists — the first one by rule precedence that does
+// not leave directly. Observe changes no traffic and fails nothing over.
+func TestPlanFailover(t *testing.T) {
+	s := plan(t, input())
+	if s.Classify.Failover != netstate.VerdictExit(0) {
+		t.Fatalf("failover = %+v, want the domain list's exit", s.Classify.Failover)
+	}
+	down := input()
+	down.Resolver.Up = false
+	if d := plan(t, down); d.Health.ResolverUp || !d.Classify.FailoverActive(d.Health) {
+		t.Fatalf("resolver down: up %t, failover active %t", d.Health.ResolverUp, d.Classify.FailoverActive(d.Health))
+	}
+
+	observe := input()
+	observe.Policy.Mode = policy.ModeObserve
+	if s := plan(t, observe); s.Classify.HasFailover() {
+		t.Fatalf("observe fails over: %+v", s.Classify.Failover)
+	}
+
+	// With two exits the first rule over a domain list decides; one sending
+	// it directly is skipped: failing over never leaves from the node's own
+	// address.
+	two := input()
+	second := two.Policy.Exits[0]
+	second.Name, second.Iface, second.Slot, second.Conf = "warp2", "warp2", 1, "/etc/vnm/exits/warp2/warp2.conf"
+	two.Policy.Exits = append(two.Policy.Exits, second)
+	for _, name := range []string{"allowed", "other"} {
+		two.Policy.Lists = append(two.Policy.Lists, policy.List{Name: name, Suffix: []string{name + ".test"}, Bounds: policy.DefaultBounds})
+		two.Domains[name] = []string{name + ".test"}
+	}
+	two.Policy.Rules = append([]policy.Rule{
+		{Lists: []string{"allowed"}, Action: policy.Action{Kind: policy.ActionDirect}},
+		{Lists: []string{"other"}, Action: policy.Action{Kind: policy.ActionExit, Exit: "warp2"}, Fallback: policy.ActionBlock},
+	}, two.Policy.Rules...)
+	if s := plan(t, two); s.Classify.Failover != netstate.VerdictExit(1) {
+		t.Fatalf("failover = %+v, want the exit of the first rule not direct", s.Classify.Failover)
+	}
+}
+
 func TestPlanWithoutDomainListsRunsNoResolver(t *testing.T) {
 	in := input()
 	in.Policy.Lists = slices.DeleteFunc(in.Policy.Lists, func(l policy.List) bool { return l.Name == "ru_suffix" })
 	in.Policy.Rules[0].Lists = []string{"ru_ip"}
-	if s := plan(t, in); s.DNS.Enabled() || s.Classify.DNSPort != 0 {
-		t.Fatalf("resolver planned without domain lists: %+v", s.DNS)
+	if s := plan(t, in); s.DNS.Enabled() || s.Classify.DNSPort != 0 || s.Classify.HasFailover() {
+		t.Fatalf("resolver planned without domain lists: %+v, failover %+v", s.DNS, s.Classify.Failover)
 	}
 }

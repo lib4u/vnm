@@ -48,11 +48,13 @@ const (
 	setListenUDP = "listen_udp"
 	setDeadExits = "dead_exits"
 	setDNSPorts  = "dns_ports"
+	setFailover  = "failover"
 	listPrefix   = "l_"
 
 	counterListenBypass = "listen_bypass"
 	counterBlocked      = "blocked"
 	counterExitDown     = "exit_down"
+	counterFailover     = "resolver_failover"
 )
 
 // Render returns the definition of the agent's table for a state, less its
@@ -100,20 +102,23 @@ func Script(s netstate.State) string {
 const dnsPort = 53
 
 // HealthScript returns an nft script that applies the health: which exits are
-// dead, and whether DNS goes to the resolver. It touches only the health sets,
-// so a health change never rewrites the ruleset.
+// dead, and whether the resolver answers — DNS goes to it while it does, IPv4
+// is failed over while it does not. It touches only the health sets, so a
+// health change never rewrites the ruleset. The failover set says "the
+// resolver does not answer" also where no rule reads it.
 func HealthScript(h netstate.Health) string {
 	marks := make([]string, 0, len(h.DeadSlots))
 	for _, slot := range h.DeadSlots {
 		marks = append(marks, mark(netstate.ExitMark(slot)))
 	}
-	var dns []string
-	if h.ResolverUp {
-		dns = []string{fmt.Sprint(dnsPort)}
+	dns, failover := []string{fmt.Sprint(dnsPort)}, []string(nil)
+	if !h.ResolverUp {
+		dns, failover = nil, []string{"ipv4"}
 	}
 	w := &writer{}
 	w.fill(setDeadExits, marks)
 	w.fill(setDNSPorts, dns)
+	w.fill(setFailover, failover)
 	return w.String()
 }
 
@@ -128,6 +133,7 @@ func renderSets(w *writer, c netstate.Classify) {
 	w.set(setListenUDP, "inet_service", "", ports(c.Listen.UDP))
 	w.set(setDeadExits, "mark", "", nil)
 	w.set(setDNSPorts, "inet_service", "", nil)
+	w.set(setFailover, "nf_proto", "", nil)
 
 	for _, s := range c.Sets {
 		// A dynamic set holds single addresses the resolver adds. They carry no
@@ -153,6 +159,9 @@ func counters(s netstate.State) []string {
 	names := []string{counterListenBypass, counterBlocked, counterExitDown}
 	for _, d := range s.Classify.Decisions {
 		names = append(names, d.Counter)
+	}
+	if s.Classify.HasFailover() {
+		names = append(names, counterFailover)
 	}
 	for _, r := range s.Guard.Rules {
 		names = append(names, r.Counter)
@@ -189,6 +198,14 @@ func renderDecide(w *writer, c netstate.Classify) {
 		}
 		w.line(2, "%s daddr @%s %sct mark set %s return",
 			addrKeyword(d.Family), SetName(d.Set), w.count(d.Counter), mark(verdict))
+	}
+	if c.HasFailover() {
+		// While the resolver does not answer (the health fills the set), IPv4
+		// no decision matched takes the failover verdict. DNS stays direct:
+		// with the exit dead too it would otherwise be refused, and the
+		// exit's probe could not resolve its host to come back.
+		w.line(2, "meta nfproto @%s meta l4proto { tcp, udp } th dport %d ct mark set %s return", setFailover, dnsPort, direct)
+		w.line(2, "meta nfproto @%s %sct mark set %s return", setFailover, w.count(counterFailover), mark(c.Failover.Mark))
 	}
 	w.line(2, "ct mark set %s", direct)
 	w.line(1, "}")
@@ -254,8 +271,9 @@ const dstnatPriority = -100
 // renderDNS sends DNS to the resolver, so the addresses of listed domains reach
 // its sets (ТЗ §5): the queries of downstream clients and of the host itself,
 // except the resolver's own upstream queries. The redirect matches only while
-// the health says the resolver is up. The resolver's port stays shut on the
-// uplink: it must never become an open resolver.
+// the health says the resolver is up; while it is not, IPv4 is failed over
+// (renderDecide). The resolver's port stays shut on the uplink: it must never
+// become an open resolver.
 func renderDNS(w *writer, c netstate.Classify) {
 	redirect := fmt.Sprintf("meta l4proto { tcp, udp } th dport @%s redirect to :%d", setDNSPorts, c.DNSPort)
 

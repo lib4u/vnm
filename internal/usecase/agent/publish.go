@@ -22,7 +22,7 @@ func (a *Agent) publish(ctx context.Context, configValid bool, statuses []exits.
 		LastReconcile: a.d.Now(),
 	}
 	if a.applied != nil {
-		snap.Resolver = ResolverSnapshot{Enabled: a.applied.DNS.Enabled(), Up: a.applied.Health.ResolverUp}
+		snap.Resolver = a.resolverSnapshot(ctx)
 		counters, err := a.d.Counters.Counters(ctx)
 		if err != nil {
 			// The last counters again: a gap would read as a counter reset.
@@ -43,6 +43,24 @@ func (a *Agent) publish(ctx context.Context, configValid bool, statuses []exits.
 	if err := a.d.Metrics.Publish(snap); err != nil {
 		a.d.Log.Warn("publish metrics", "error", err)
 	}
+}
+
+// resolverSnapshot reports on the resolver of the applied state. Its counter
+// is read only while it answers: a dead one would only cost the pass the
+// probe's retries again.
+func (a *Agent) resolverSnapshot(ctx context.Context) ResolverSnapshot {
+	dns, c, h := a.applied.DNS, a.applied.Classify, a.applied.Health
+	if !dns.Enabled() {
+		return ResolverSnapshot{}
+	}
+	if h.ResolverUp {
+		if n, err := a.d.Resolver.UDPDropped(ctx, dns.Port); err != nil {
+			a.d.Log.Warn("read the resolver's counters", "error", err)
+		} else {
+			a.udpDropped = n
+		}
+	}
+	return ResolverSnapshot{Enabled: true, Up: h.ResolverUp, Failover: c.FailoverActive(h), UDPDropped: a.udpDropped}
 }
 
 // p2pRefused reads the p2p part's counters per signature.

@@ -4,8 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
@@ -25,6 +27,15 @@ const (
 	tcpIdle        = 10 * time.Second
 )
 
+// CHAOS TXT names the resolver answers itself (dnsmasq's convention for its
+// own state): the agent's liveness probe, and the count of UDP queries dropped
+// over the in-flight limit since the resolver started. The count is told to
+// the host alone.
+const (
+	VersionName    = "version.bind."
+	UDPDroppedName = "udp-dropped.bind."
+)
+
 // Server is the resolver.
 type Server struct {
 	port    uint16
@@ -35,6 +46,8 @@ type Server struct {
 	log     *rateLog
 	udp     chan struct{}
 	tcp     chan struct{}
+	// udpDropped counts the datagrams dropped over the in-flight limit.
+	udpDropped atomic.Uint64
 }
 
 // Options are the resolver's collaborators; a nil Exchanger or Interfaces is
@@ -72,11 +85,33 @@ func New(o Options) *Server {
 // answer returns the packed reply to a packed query, or nil when nothing is to
 // be sent back.
 func (s *Server) answer(ctx context.Context, req []byte, tcp bool) []byte {
+	q := parseQuery(req)
+	if q == nil {
+		return nil
+	}
+	return s.pack(q, s.reply(ctx, q, tcp), tcp)
+}
+
+// answerHost answers a CHAOS query from the host itself — the agent's probe —
+// at once, without an in-flight slot: a resolver whose slots its clients took
+// must still be seen alive. Anything else returns nil and is served as usual.
+func (s *Server) answerHost(req []byte) []byte {
+	q := parseQuery(req)
+	if q == nil || q.Opcode != dns.OpcodeQuery || len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassCHAOS {
+		return nil
+	}
+	return s.pack(q, s.chaos(q, true), false)
+}
+
+func parseQuery(req []byte) *dns.Msg {
 	q := new(dns.Msg)
 	if err := q.Unpack(req); err != nil || q.Response {
 		return nil
 	}
-	r := s.reply(ctx, q, tcp)
+	return q
+}
+
+func (s *Server) pack(q, r *dns.Msg, tcp bool) []byte {
 	if !tcp {
 		r.Truncate(clientUDPSize(q))
 	}
@@ -96,7 +131,7 @@ func (s *Server) reply(ctx context.Context, q *dns.Msg, tcp bool) *dns.Msg {
 	case len(q.Question) != 1:
 		return rcode(q, dns.RcodeFormatError)
 	case q.Question[0].Qclass == dns.ClassCHAOS:
-		return chaos(q)
+		return s.chaos(q, false)
 	}
 	r, err := s.fwd.forward(ctx, q, tcp)
 	if err != nil {
@@ -117,18 +152,26 @@ func (s *Server) reply(ctx context.Context, q *dns.Msg, tcp bool) *dns.Msg {
 	return r
 }
 
-// chaos answers "version.bind" TXT itself: the agent's liveness probe, which
-// must not depend on the upstreams. Any other CHAOS query is refused.
-func chaos(q *dns.Msg) *dns.Msg {
+// chaos answers the CHAOS TXT names the resolver keeps itself, without the
+// upstreams; the counters only to the host. Any other CHAOS query is refused.
+func (s *Server) chaos(q *dns.Msg, host bool) *dns.Msg {
 	qq := q.Question[0]
-	if qq.Qtype != dns.TypeTXT || !strings.EqualFold(qq.Name, "version.bind.") {
+	var txt string
+	switch {
+	case qq.Qtype != dns.TypeTXT:
+		return rcode(q, dns.RcodeRefused)
+	case strings.EqualFold(qq.Name, VersionName):
+		txt = "vnm"
+	case host && strings.EqualFold(qq.Name, UDPDroppedName):
+		txt = strconv.FormatUint(s.udpDropped.Load(), 10)
+	default:
 		return rcode(q, dns.RcodeRefused)
 	}
 	r := rcode(q, dns.RcodeSuccess)
 	r.Authoritative = true
 	r.Answer = []dns.RR{&dns.TXT{
 		Hdr: dns.RR_Header{Name: qq.Name, Rrtype: dns.TypeTXT, Class: dns.ClassCHAOS},
-		Txt: []string{"vnm"},
+		Txt: []string{txt},
 	}}
 	return r
 }

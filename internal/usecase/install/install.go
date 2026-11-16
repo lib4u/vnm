@@ -345,18 +345,26 @@ func (in *Installer) AllowExitForwarding(ctx context.Context, ifaces []string) (
 	return fw, nil
 }
 
-// Start enables the units and starts the agent — restarting it when it was
-// already running, so a new binary takes over.
+// Start enables the units and starts the agent — restarting it, and the
+// resolver, when they were already running, so a new binary takes over: the
+// agent restarts the resolver only when its config changes.
 func (in *Installer) Start(ctx context.Context) error {
-	wasActive := in.svc.Active(ctx, AgentUnit)
+	var running []string
+	for _, unit := range []string{DNSUnit, AgentUnit} {
+		if in.svc.Active(ctx, unit) {
+			running = append(running, unit)
+		}
+	}
 	if err := in.host.EnsureSystemUser(ctx, NDPIUser); err != nil {
 		return fmt.Errorf("user %s: %w", NDPIUser, err)
 	}
 	if err := in.svc.EnableNow(ctx, BootUnit, AgentUnit, DNSUnit, NDPIUnit); err != nil {
 		return err
 	}
-	if wasActive {
-		return in.svc.Restart(ctx, AgentUnit)
+	for _, unit := range running {
+		if err := in.svc.Restart(ctx, unit); err != nil {
+			return err
+		}
 	}
 	return nil
 }

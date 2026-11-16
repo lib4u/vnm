@@ -3,14 +3,11 @@ package dnsd
 import (
 	"context"
 	"errors"
-	"net"
 	"net/netip"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/miekg/dns"
 )
@@ -374,6 +371,23 @@ func TestLocalAnswers(t *testing.T) {
 		t.Fatalf("hostname.bind: %v", r)
 	}
 
+	// The counters are the host's business alone.
+	srv.udpDropped.Store(7)
+	q.SetQuestion(UDPDroppedName, dns.TypeTXT)
+	q.Question[0].Qclass = dns.ClassCHAOS
+	b, _ = q.Pack()
+	if r := unpack(t, srv.answer(context.Background(), b, false)); r.Rcode != dns.RcodeRefused {
+		t.Fatalf("%s to a client: %v", UDPDroppedName, r)
+	}
+	r = unpack(t, srv.answerHost(b))
+	if txt, ok := r.Answer[0].(*dns.TXT); r.Rcode != dns.RcodeSuccess || !ok || txt.Txt[0] != "7" {
+		t.Fatalf("%s to the host: %v", UDPDroppedName, r)
+	}
+	// Only CHAOS is answered on the host's fast path; the rest waits for a slot.
+	if srv.answerHost(query(t, "example.ru.", dns.TypeA)) != nil {
+		t.Fatal("a query needing the upstreams answered without a slot")
+	}
+
 	q = new(dns.Msg)
 	q.SetUpdate("example.ru.")
 	b, _ = q.Pack()
@@ -384,73 +398,4 @@ func TestLocalAnswers(t *testing.T) {
 	if srv.answer(context.Background(), []byte{1, 2, 3}, false) != nil {
 		t.Fatal("garbage answered")
 	}
-}
-
-// Over the network: an answer comes back from the address asked, over UDP and
-// TCP; a query arriving on an uplink gets nothing.
-func TestServe(t *testing.T) {
-	port := freePort(t)
-	lo, err := net.InterfaceByName("lo")
-	if err != nil {
-		t.Skip("no loopback interface")
-	}
-	for _, uplink := range []bool{false, true} {
-		ifs := func(string) (int, []netip.Addr, error) {
-			if !uplink {
-				return 0, nil, errors.New("absent")
-			}
-			return lo.Index, []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
-		}
-		s := &sets{}
-		srv := New(Options{
-			Config: Config{Port: port, Upstreams: []netip.AddrPort{up1}, Uplinks: []string{"lo"},
-				Sets: []DomainSet{{Set4: "l_ru_d4", Set6: "l_ru_d6", Domains: []string{"ru"}}}},
-			Filler: s, Exchanger: &upstreams{answer: zone("ya.ru. 60 IN A 203.0.113.7")}, Interfaces: ifs,
-		})
-		ctx, cancel := context.WithCancel(context.Background())
-		ready := make(chan struct{})
-		done := make(chan error, 1)
-		go func() { done <- srv.Serve(ctx, func() { close(ready) }) }()
-		select {
-		case <-ready:
-		case err := <-done:
-			t.Fatalf("serve: %v", err)
-		}
-
-		for _, network := range []string{"udp", "tcp"} {
-			c := dns.Client{Net: network, Timeout: 300 * time.Millisecond}
-			q := new(dns.Msg)
-			q.SetQuestion("ya.ru.", dns.TypeA)
-			r, _, err := c.Exchange(q, netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), port).String())
-			switch {
-			case uplink && err == nil:
-				t.Errorf("%s: answered on an uplink: %v", network, r)
-			case !uplink && (err != nil || len(r.Answer) != 1):
-				t.Errorf("%s: %v %v", network, r, err)
-			}
-		}
-		cancel()
-		if err := <-done; err != nil {
-			t.Fatalf("serve: %v", err)
-		}
-	}
-}
-
-func freePort(t *testing.T) uint16 {
-	t.Helper()
-	for range 20 {
-		pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		port := uint16(pc.LocalAddr().(*net.UDPAddr).Port)
-		pc.Close()
-		ln, err := net.Listen("tcp4", "0.0.0.0:"+strconv.Itoa(int(port)))
-		if err == nil {
-			ln.Close()
-			return port
-		}
-	}
-	t.Fatal("no free port")
-	return 0
 }

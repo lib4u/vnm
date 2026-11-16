@@ -66,6 +66,10 @@ type Explanation struct {
 	Matches []Match
 	// Exit is the exit the decision names, if any.
 	Exit *netstate.Exit
+	// Failover means no list matched and the resolver does not answer: the
+	// failover verdict decides (netstate.Classify.Failover). DNS (port 53)
+	// is not failed over, which an address alone cannot tell.
+	Failover bool
 	// Observe means the decision is only counted: the connection leaves
 	// directly whatever Would says.
 	Observe bool
@@ -117,8 +121,13 @@ func (in *Inspector) Explain(ctx context.Context, addr netip.Addr) (Explanation,
 	}
 
 	ex.Would = OutcomeDirect
-	if !ex.Exempt && len(ex.Matches) > 0 {
+	switch {
+	case ex.Exempt:
+	case len(ex.Matches) > 0:
 		ex.Would, ex.Exit = outcome(ex.Matches[0].Verdict, c.Exits, live.Health)
+	case addr.Is4() && c.FailoverActive(live.Health):
+		ex.Failover = true
+		ex.Would, ex.Exit = outcome(c.Failover, c.Exits, live.Health)
 	}
 	ex.Outcome = ex.Would
 	if ex.Observe {

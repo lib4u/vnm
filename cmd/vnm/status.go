@@ -54,11 +54,8 @@ func runStatus(paths app.Paths) error {
 		fmt.Fprintf(w, "exit %s\t%s\n", e.Name, exitLine(e.Present, e.Healthy, e.Alert))
 	}
 	if s.Resolver.Enabled {
-		resolver := "up, DNS redirected to it"
-		if !s.Resolver.Up {
-			resolver = "DOWN, DNS not redirected: domain lists are not filled"
-		}
-		fmt.Fprintf(w, "resolver\t%s\n", resolver)
+		fmt.Fprintf(w, "resolver\t%s; %d UDP queries dropped over the in-flight limit\n",
+			resolverLine(s.Resolver), s.Resolver.UDPDropped)
 	}
 	for _, name := range slices.Sorted(maps.Keys(s.Lists)) {
 		fmt.Fprintf(w, "list %s\t%s\n", name, listLine(s.Lists[name]))
@@ -89,6 +86,18 @@ func exitLine(present, healthy, alert bool) string {
 		return "DEAD for over 15 min"
 	default:
 		return "DEAD"
+	}
+}
+
+// resolverLine says whether the resolver answers and what its absence does.
+func resolverLine(r agent.ResolverSnapshot) string {
+	switch {
+	case r.Up:
+		return "up, DNS redirected to it"
+	case r.Failover:
+		return "DOWN, DNS not redirected: all IPv4 goes through the exit"
+	default:
+		return "DOWN, DNS not redirected: domain lists are not filled"
 	}
 }
 
@@ -212,6 +221,9 @@ func matchesLine(ex inspect.Explanation) string {
 	}
 	for _, m := range ex.Matches {
 		parts = append(parts, fmt.Sprintf("%s (%s)", m.List, m.Set))
+	}
+	if len(parts) == 0 && ex.Failover {
+		return "no list; resolver down, IPv4 failed over (DNS on port 53 excepted)"
 	}
 	if len(parts) == 0 {
 		return "no list"

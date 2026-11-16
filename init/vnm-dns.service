@@ -8,6 +8,9 @@
 Description=vpn-node-manager resolver
 After=vnm-boot.service network.target
 ConditionPathExists={{.ResolverConf}}
+# While it does not answer, enforce sends all IPv4 through the exit: systemd
+# must never give up restarting it, or the node stays that way.
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify

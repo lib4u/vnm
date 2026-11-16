@@ -52,6 +52,9 @@ type Resolver interface {
 	Apply(ctx context.Context, s netstate.State) error
 	// Up reports whether the resolver answers on the port.
 	Up(ctx context.Context, port uint16) bool
+	// UDPDropped returns how many UDP queries the resolver dropped over its
+	// in-flight limit since it started.
+	UDPDropped(ctx context.Context, port uint16) (uint64, error)
 	// UID is the user the resolver queries its upstreams as.
 	UID() (uint32, error)
 }
@@ -136,8 +139,14 @@ type P2PWatch interface {
 type ResolverSnapshot struct {
 	// Enabled means the policy uses domain lists, so a resolver is wanted.
 	Enabled bool
-	// Up means DNS is redirected to it: it answered on the last check.
+	// Up means it answered on the last check: DNS is redirected to it.
 	Up bool
+	// Failover means it did not, and IPv4 no list matched is failed over
+	// (netstate.Classify.Failover) instead of leaving directly.
+	Failover bool
+	// UDPDropped counts the UDP queries it dropped over its in-flight limit
+	// since it started, as last read.
+	UDPDropped uint64
 }
 
 // Snapshot is the agent's state after a pass, for monitoring (ТЗ §7.5).

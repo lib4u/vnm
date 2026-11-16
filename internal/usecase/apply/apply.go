@@ -114,10 +114,11 @@ func BootState(s netstate.State) netstate.State {
 	return s
 }
 
-// FailClosed is the health that assumes nothing: every exit dead, DNS not
-// redirected until the resolver is seen answering. The kernel holds it
-// whenever nobody knows better — at boot, and after a rollback, whose last
-// good health is as old as the last full apply.
+// FailClosed is the health that assumes nothing: every exit dead, the resolver
+// not answering until it is seen to — DNS goes where it was sent, and IPv4 is
+// failed over (netstate.Classify.Failover) into an exit taken for dead, so
+// refused. The kernel holds it whenever nobody knows better — at boot, and
+// after a rollback, whose last good health is as old as the last full apply.
 func FailClosed(s netstate.State) netstate.Health {
 	h := netstate.Health{DeadSlots: make([]int, 0, len(s.Classify.Exits))}
 	for _, e := range s.Classify.Exits {

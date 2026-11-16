@@ -31,13 +31,14 @@ func applied(t *testing.T, mode policy.Mode) store {
 func TestExplain(t *testing.T) {
 	yandex := netip.MustParseAddr("77.88.55.88")
 	tests := []struct {
-		name    string
-		mode    policy.Mode
-		addr    netip.Addr
-		live    inspect.Live
-		want    inspect.Outcome
-		would   inspect.Outcome
-		matches int
+		name     string
+		mode     policy.Mode
+		addr     netip.Addr
+		live     inspect.Live
+		want     inspect.Outcome
+		would    inspect.Outcome
+		matches  int
+		failover bool
 	}{
 		{
 			name: "listed address goes through the exit",
@@ -60,6 +61,30 @@ func TestExplain(t *testing.T) {
 		{
 			name: "unlisted address is direct",
 			mode: policy.ModeEnforce, addr: netip.MustParseAddr("8.8.8.8"),
+			live: inspect.Live{Present: true, Health: netstate.Health{ResolverUp: true}},
+			want: inspect.OutcomeDirect, would: inspect.OutcomeDirect,
+		},
+		{
+			name: "resolver down: unlisted IPv4 is failed over",
+			mode: policy.ModeEnforce, addr: netip.MustParseAddr("8.8.8.8"),
+			live: inspect.Live{Present: true},
+			want: inspect.OutcomeExit, would: inspect.OutcomeExit, failover: true,
+		},
+		{
+			name: "resolver and exit down: failed over into a refusal",
+			mode: policy.ModeEnforce, addr: netip.MustParseAddr("8.8.8.8"),
+			live: inspect.Live{Present: true, Health: netstate.Health{DeadSlots: []int{0}}},
+			want: inspect.OutcomeRefused, would: inspect.OutcomeRefused, failover: true,
+		},
+		{
+			name: "resolver down: unlisted IPv6 is not failed over",
+			mode: policy.ModeEnforce, addr: netip.MustParseAddr("2001:4860:4860::8888"),
+			live: inspect.Live{Present: true},
+			want: inspect.OutcomeDirect, would: inspect.OutcomeDirect,
+		},
+		{
+			name: "observe never fails over",
+			mode: policy.ModeObserve, addr: netip.MustParseAddr("8.8.8.8"),
 			live: inspect.Live{Present: true},
 			want: inspect.OutcomeDirect, would: inspect.OutcomeDirect,
 		},
@@ -82,8 +107,8 @@ func TestExplain(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if ex.Outcome != tt.want || ex.Would != tt.would || len(ex.Matches) != tt.matches {
-				t.Fatalf("outcome %d would %d matches %+v", ex.Outcome, ex.Would, ex.Matches)
+			if ex.Outcome != tt.want || ex.Would != tt.would || len(ex.Matches) != tt.matches || ex.Failover != tt.failover {
+				t.Fatalf("outcome %d would %d matches %+v failover %t", ex.Outcome, ex.Would, ex.Matches, ex.Failover)
 			}
 			if tt.want == inspect.OutcomeExit && (ex.Exit == nil || ex.Exit.Iface != "warp") {
 				t.Fatalf("exit = %+v", ex.Exit)

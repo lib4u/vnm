@@ -58,6 +58,9 @@ table inet vnm {
 	set dns_ports {
 		type inet_service;
 	}
+	set failover {
+		type nf_proto;
+	}
 	set l_ru_ip_4 {
 		type ipv4_addr;
 		flags interval;
@@ -116,6 +119,7 @@ table inet vnm {
 	counter r0_ru_ip_6 {}
 	counter r0_ru_suffix_d4 {}
 	counter r0_ru_suffix_d6 {}
+	counter resolver_failover {}
 	counter g_scanners_4 {}
 	counter g_scanners_6 {}
 	counter p_utp_syn {}
@@ -137,6 +141,8 @@ table inet vnm {
 		ip6 daddr @l_ru_ip_6 counter name r0_ru_ip_6 ct mark set 0x0000ca6b return
 		ip daddr @l_ru_suffix_d4 counter name r0_ru_suffix_d4 ct mark set 0x0000ca6c return
 		ip6 daddr @l_ru_suffix_d6 counter name r0_ru_suffix_d6 ct mark set 0x0000ca6b return
+		meta nfproto @failover meta l4proto { tcp, udp } th dport 53 ct mark set 0x0000ca6a return
+		meta nfproto @failover counter name resolver_failover ct mark set 0x0000ca6c return
 		ct mark set 0x0000ca6a
 	}
 	chain prerouting {

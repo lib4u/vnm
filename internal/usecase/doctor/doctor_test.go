@@ -124,6 +124,9 @@ func TestFindings(t *testing.T) {
 		{"observe", func(n *node) { n.snap.Mode = policy.ModeObserve }, "mode", doctor.LevelWarn},
 		{"exit dead", func(n *node) { n.snap.Exits[0].Healthy = false }, "exit warp", doctor.LevelFail},
 		{"resolver down", func(n *node) { n.snap.Resolver.Up = false }, "resolver", doctor.LevelWarn},
+		{"resolver down, IPv4 failed over", func(n *node) {
+			n.snap.Resolver.Up, n.snap.Resolver.Failover = false, true
+		}, "resolver", doctor.LevelWarn},
 		{"list 4 refreshes old", func(n *node) { setList(n, "ru_ip", func(l *agent.ListStatus) { l.Age = 4 * 24 * time.Hour }) }, "list ru_ip", doctor.LevelWarn},
 		{"list 8 refreshes old", func(n *node) { setList(n, "ru_ip", func(l *agent.ListStatus) { l.Age = 8 * 24 * time.Hour }) }, "list ru_ip", doctor.LevelFail},
 		{"list missing", func(n *node) { setList(n, "ru_ip", func(l *agent.ListStatus) { l.Missing = true }) }, "list ru_ip", doctor.LevelFail},

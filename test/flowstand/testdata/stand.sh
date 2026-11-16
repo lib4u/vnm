@@ -9,7 +9,10 @@
 # client got ("err=<reason>"); the Go test decides what is right.
 #
 #   stand.sh <dir> <enforce|observe>
-# <dir> holds vnm.nft, routing.sh, probe.py, resolver.json and the vnm binary;
+# <dir> holds vnm.nft, routing.sh, probe.py, resolver.json, the vnm binary and
+# the health scripts the agent would apply: health-up.nft (as planned),
+# health-down.nft (the resolver not answering), health-dead.nft (neither the
+# resolver nor the exit);
 # $RESOLVER_UID is the user the resolver runs as.
 set -euo pipefail
 
@@ -160,6 +163,7 @@ install -m 755 "$dir/vnm" /run/vnm-dns/vnm
 setpriv --reuid="$RESOLVER_UID" --regid="$RESOLVER_UID" --clear-groups \
 	--inh-caps=+net_admin --ambient-caps=+net_admin \
 	/run/vnm-dns/vnm dns serve -config - <"$dir/resolver.json" >"$dir/resolver.log" 2>&1 &
+resolver=$!
 sleep 0.5
 touch "$flag"
 wait $held
@@ -199,11 +203,21 @@ report D-4 nsx ruc $probe udp $NODE 5353
 # The host's own DNS takes the same way — the resolver's own upstream queries
 # excepted, or it would ask itself.
 report D-5 $probe resolve-tcp $USUAL_DNS twoip3.ru 80
-# The resolver is down: the agent empties dns_ports, and DNS goes where it was
-# sent, so the node keeps resolving.
-nft flush set inet vnm dns_ports
+# The resolver is gone, and the agent applies the health it then has: DNS goes
+# where it was sent, and IPv4 no list matched is failed over into the exit.
+kill "$resolver" 2>/dev/null || true # with the egress off it has nothing to serve and is gone
+wait "$resolver" 2>/dev/null || true
+nft -f "$dir/health-down.nft"
 report D-6 $probe resolve-tcp $USUAL_DNS twoip4.ru 80
-nft add element inet vnm dns_ports { 53 }
+report D-7 nsx client $probe resolve-tcp $USUAL_DNS foreign.test 80
+report D-8 $probe tcp $FOREIGN 80
+report D-8r nsx client $probe tcp $RU_SITE 80
+# The exit dead as well: DNS still answers, every connection it would carry is
+# refused.
+nft -f "$dir/health-dead.nft"
+report D-9 nsx client $probe resolve-tcp $USUAL_DNS foreign.test 80
+report D-10 $probe tcp $FOREIGN 80
+nft -f "$dir/health-up.nft"
 
 # Guard: new connections from a listed source never reach the node.
 report G-0 nsx inet $probe tcp $NODE 22 --src $FOREIGN

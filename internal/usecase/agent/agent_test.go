@@ -92,13 +92,21 @@ func (r *resolver) Domains(context.Context, policy.Config) (map[string][]string,
 
 // dns records what the resolver was asked to serve.
 type dns struct {
-	applied  []netstate.DNSState
-	down     bool
-	noUser   bool
-	applyErr error
+	applied    []netstate.DNSState
+	down       bool
+	noUser     bool
+	applyErr   error
+	dropped    uint64
+	droppedErr error
+	reads      int
 }
 
 func (d *dns) Up(context.Context, uint16) bool { return !d.down }
+
+func (d *dns) UDPDropped(context.Context, uint16) (uint64, error) {
+	d.reads++
+	return d.dropped, d.droppedErr
+}
 
 func (d *dns) UID() (uint32, error) {
 	if d.noUser {
@@ -387,9 +395,10 @@ func TestResolverFollowsAppliedState(t *testing.T) {
 	}
 }
 
-// DNS goes to the resolver only while it answers: its death turns the
-// redirect off through the health alone, and its return turns it back on.
-func TestResolverHealthGatesRedirect(t *testing.T) {
+// The resolver's health follows the probe through the health sets alone, never
+// by rewriting the table; whether it lifts the redirect is the ruleset's
+// business (and so is the IPv4 failover it turns on).
+func TestResolverHealthFollowsProbe(t *testing.T) {
 	r := newRig()
 	r.pass()
 	if got := r.kernel.applies[0]; !got.Health.ResolverUp || got.Classify.ResolverUID != 997 {
@@ -404,6 +413,30 @@ func TestResolverHealthGatesRedirect(t *testing.T) {
 	}
 	if len(r.kernel.health) != 2 || r.kernel.health[0].ResolverUp || !r.kernel.health[1].ResolverUp {
 		t.Fatalf("health = %+v, want resolver down then up", r.kernel.health)
+	}
+}
+
+// The resolver's drop counter reaches the snapshot. While the resolver does
+// not answer, or its counter cannot be read, the last value read is published
+// again — a gap would read as a reset — and a dead resolver is not asked; the
+// snapshot then says IPv4 is failed over.
+func TestSnapshotResolverDrops(t *testing.T) {
+	r := newRig()
+	r.dns.dropped = 12
+	r.pass()
+	if got := r.metrics.last.Resolver; !got.Enabled || !got.Up || got.Failover || got.UDPDropped != 12 {
+		t.Fatalf("resolver snapshot = %+v", got)
+	}
+	r.dns.droppedErr = errors.New("timeout")
+	r.pass()
+	if got := r.metrics.last.Resolver; got.UDPDropped != 12 {
+		t.Fatalf("unreadable counter published as %d, want the last one", got.UDPDropped)
+	}
+	r.dns.droppedErr, r.dns.down = nil, true
+	reads := r.dns.reads
+	r.pass()
+	if got := r.metrics.last.Resolver; got.Up || !got.Failover || got.UDPDropped != 12 || r.dns.reads != reads {
+		t.Fatalf("dead resolver: snapshot %+v, counter reads %d → %d", got, reads, r.dns.reads)
 	}
 }
 

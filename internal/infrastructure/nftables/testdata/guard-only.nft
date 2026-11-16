@@ -48,6 +48,9 @@ table inet vnm {
 	set dns_ports {
 		type inet_service;
 	}
+	set failover {
+		type nf_proto;
+	}
 	set l_scanners_4 {
 		type ipv4_addr;
 		flags interval;

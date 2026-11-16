@@ -120,8 +120,12 @@ func Render(s agent.Snapshot) string {
 	}
 
 	if s.Resolver.Enabled {
-		metric("vnm_resolver_up", "1 while the resolver answers and DNS is redirected to it.", "gauge")
+		metric("vnm_resolver_up", "1 while the resolver answers the agent's probe; DNS is redirected to it only then.", "gauge")
 		fmt.Fprintf(&b, "vnm_resolver_up %d\n", boolValue(s.Resolver.Up))
+		metric("vnm_resolver_failover", "1 while the resolver does not answer and IPv4 no list matched leaves through the failover exit instead of directly.", "gauge")
+		fmt.Fprintf(&b, "vnm_resolver_failover %d\n", boolValue(s.Resolver.Failover))
+		metric("vnm_resolver_udp_dropped_total", "UDP queries the resolver dropped over its in-flight limit since it started; the client asks again.", "counter")
+		fmt.Fprintf(&b, "vnm_resolver_udp_dropped_total %d\n", s.Resolver.UDPDropped)
 	}
 
 	metric("vnm_connections_total", "Connections matched by each classification counter.", "counter")

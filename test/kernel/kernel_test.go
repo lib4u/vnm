@@ -160,6 +160,23 @@ func TestRestoreAfterReboot(t *testing.T) {
 	if got := r.sh(t, "nft list set inet vnm dead_exits"); !strings.Contains(got, "0x0000ca6c") {
 		t.Fatalf("exit not dead after boot:\n%s", got)
 	}
+	// Nobody has seen the resolver yet: DNS goes where it was sent, and IPv4
+	// is failed over into the exit — taken for dead, so refused — never
+	// directly (enforce).
+	r.requireFailover(t, true)
+}
+
+// requireFailover checks that the decide chain fails IPv4 over and whether
+// the health turns it on — with DNS not redirected — or off.
+func (r rig) requireFailover(t *testing.T, on bool) {
+	t.Helper()
+	if got := r.sh(t, "nft list chain inet vnm decide"); !strings.Contains(got, `meta nfproto @failover counter name "resolver_failover" ct mark set 0x0000ca6c return`) {
+		t.Fatalf("decide has no failover rule:\n%s", got)
+	}
+	failover, dns := r.sh(t, "nft list set inet vnm failover"), r.sh(t, "nft list set inet vnm dns_ports")
+	if strings.Contains(failover, "ipv4") != on || strings.Contains(dns, "53") == on {
+		t.Fatalf("failover on = %t, want %t; dns ports:\n%s", strings.Contains(failover, "ipv4"), on, dns)
+	}
 }
 
 func TestHealthTouchesOnlyTheDeadSet(t *testing.T) {
@@ -174,9 +191,7 @@ func TestHealthTouchesOnlyTheDeadSet(t *testing.T) {
 	if got := r.sh(t, "nft list set inet vnm dead_exits"); !strings.Contains(got, "0x0000ca6c") {
 		t.Fatalf("dead set:\n%s", got)
 	}
-	if got := r.sh(t, "nft list set inet vnm dns_ports"); !strings.Contains(got, "53") {
-		t.Fatalf("dns ports:\n%s", got)
-	}
+	r.requireFailover(t, false)
 	if after := r.sh(t, "nft -s list chain inet vnm decide"); after != before {
 		t.Fatal("a health change rewrote the classification")
 	}
@@ -186,9 +201,8 @@ func TestHealthTouchesOnlyTheDeadSet(t *testing.T) {
 	if got := r.sh(t, "nft list set inet vnm dead_exits"); strings.Contains(got, "0x0000ca6c") {
 		t.Fatalf("dead set not cleared:\n%s", got)
 	}
-	if got := r.sh(t, "nft list set inet vnm dns_ports"); strings.Contains(got, "53") {
-		t.Fatalf("dns ports not cleared:\n%s", got)
-	}
+	// The resolver gone: DNS no longer redirected, IPv4 failed over.
+	r.requireFailover(t, true)
 }
 
 // The exit interface disappears under an applied policy, and the next apply

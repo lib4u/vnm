@@ -124,6 +124,9 @@ type Agent struct {
 	// counters are the last counters read, published again when a read fails:
 	// a gap would look like a counter reset.
 	counters map[string]uint64
+	// udpDropped is the resolver's drop count as last read, published again
+	// while it cannot be read, for the same reason.
+	udpDropped uint64
 
 	applyErrors uint64
 	drift       uint64

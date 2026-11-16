@@ -507,6 +507,22 @@ func TestStartRestartsRunningAgent(t *testing.T) {
 	if !slices.Contains(h.log, "restart "+install.AgentUnit) {
 		t.Fatalf("log %v: a running agent must pick up the new binary", h.log)
 	}
+	if slices.Contains(h.log, "restart "+install.DNSUnit) {
+		t.Fatalf("log %v: a resolver that was not running is restarted", h.log)
+	}
+}
+
+// The agent restarts the resolver only when its config changes: a running
+// resolver must be restarted here, or it keeps serving from the old binary.
+func TestStartRestartsRunningResolver(t *testing.T) {
+	h := newHost()
+	h.active[install.AgentUnit], h.active[install.DNSUnit] = true, true
+	if err := newInstaller(h).Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(h.log, "restart "+install.DNSUnit) {
+		t.Fatalf("log %v: a running resolver must pick up the new binary", h.log)
+	}
 }
 
 // A reissue registers a new account, carries the WARP+ license over and

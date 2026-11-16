@@ -80,7 +80,17 @@ func (r *Resolver) UID() (uint32, error) {
 
 // Up reports whether the resolver answers on the port.
 func (r *Resolver) Up(ctx context.Context, port uint16) bool {
-	return Answers(ctx, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), port))
+	return Answers(ctx, onLoopback(port))
+}
+
+// UDPDropped returns how many UDP queries the resolver on the port dropped
+// over its in-flight limit since it started.
+func (r *Resolver) UDPDropped(ctx context.Context, port uint16) (uint64, error) {
+	return UDPDropped(ctx, onLoopback(port))
+}
+
+func onLoopback(port uint16) netip.AddrPort {
+	return netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), port)
 }
 
 func (r *Resolver) systemctl(ctx context.Context, args ...string) (string, error) {
