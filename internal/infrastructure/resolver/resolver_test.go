@@ -35,3 +35,19 @@ func TestConfig(t *testing.T) {
 		t.Fatalf("config %+v", got)
 	}
 }
+
+// The agent's probe must not share its reply tuple with the host's redirected
+// DNS (127.0.0.1:port): those conntrack entries make a probe to 127.0.0.1 fail
+// with EPERM whenever its random source port is one of theirs.
+func TestProbeAvoidsTheRedirectTarget(t *testing.T) {
+	got := resolver.OnLoopback(5353)
+	if !got.Addr().IsLoopback() {
+		t.Fatalf("probe address %s is not loopback: the resolver would refuse it", got)
+	}
+	if got.Addr() == netip.AddrFrom4([4]byte{127, 0, 0, 1}) {
+		t.Fatalf("probe goes to %s, the address host DNS is redirected to", got)
+	}
+	if got.Port() != 5353 {
+		t.Fatalf("port = %d", got.Port())
+	}
+}

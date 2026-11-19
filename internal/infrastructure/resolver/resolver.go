@@ -89,9 +89,21 @@ func (r *Resolver) UDPDropped(ctx context.Context, port uint16) (uint64, error) 
 	return UDPDropped(ctx, onLoopback(port))
 }
 
+// onLoopback is where the agent itself asks the resolver: 127.0.0.2, not
+// 127.0.0.1. The host's own DNS (xray asking 127.0.0.53:53) is redirected to
+// 127.0.0.1:<port>, and every such query holds the reply tuple
+// 127.0.0.1:<port> <-> 127.0.0.1:<its port> in conntrack for up to two minutes.
+// On a busy node that is thousands of local ports, and a probe sent from one of
+// them to 127.0.0.1 collides at conntrack confirm: the kernel drops it and the
+// send fails with EPERM. Seen on NL-2 19.11.2026: 35-45 % of probes lost, the
+// resolver taken for dead every few minutes and the node flapping into
+// failover. Replies from 127.0.0.2 never match a redirected entry.
+// The resolver listens on the wildcard address, so it answers there too.
 func onLoopback(port uint16) netip.AddrPort {
-	return netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), port)
+	return netip.AddrPortFrom(probeAddr, port)
 }
+
+var probeAddr = netip.AddrFrom4([4]byte{127, 0, 0, 2})
 
 func (r *Resolver) systemctl(ctx context.Context, args ...string) (string, error) {
 	out, err := r.run.Run(ctx, runner.Command{Name: "systemctl", Args: args})
