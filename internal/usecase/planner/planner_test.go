@@ -376,6 +376,16 @@ func TestPlanFailover(t *testing.T) {
 	if s := plan(t, two); s.Classify.Failover != netstate.VerdictExit(1) {
 		t.Fatalf("failover = %+v, want the exit of the first rule not direct", s.Classify.Failover)
 	}
+
+	// An explicit false leaves unmatched IPv4 on the direct verdict. Domain
+	// lists stay, the mode is enforce, and the resolver is down.
+	off := input()
+	off.Policy.DNS.Failover = false
+	off.Policy.Mode = policy.ModeEnforce
+	off.Resolver.Up = false
+	if s := plan(t, off); s.Classify.HasFailover() {
+		t.Fatalf("failover disabled: %+v", s.Classify.Failover)
+	}
 }
 
 func TestPlanWithoutDomainListsRunsNoResolver(t *testing.T) {

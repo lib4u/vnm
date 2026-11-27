@@ -148,6 +148,38 @@ func TestRenderFailover(t *testing.T) {
 	}
 }
 
+// Enforce restores the packet mark only from an exit conntrack mark. A direct
+// verdict records 0xca6a on the connection and does not write the packet mark,
+// so a mark the cascade already set survives. Slot 0 still restores 0xca6c.
+func TestRenderRestoresExitMarkOnly(t *testing.T) {
+	out := nftables.Render(planned(t, policy.ModeEnforce))
+	const (
+		direct  = "0x0000ca6a"
+		exit0   = "0x0000ca6c"
+		restore = "meta mark set ct mark"
+	)
+	restores := 0
+	for line := range strings.SplitSeq(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.Contains(line, "meta mark set") {
+			continue
+		}
+		restores++
+		if !strings.Contains(line, restore) || !strings.Contains(line, "ct mark {") || strings.Contains(line, direct) || !strings.Contains(line, exit0) {
+			t.Errorf("packet mark write is not a restore of the slot 0 exit mark: %s", line)
+		}
+	}
+	if restores == 0 {
+		t.Fatal("enforce ruleset does not restore the packet mark")
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "ct mark set "+direct) && strings.Contains(line, "meta mark set") {
+			t.Errorf("direct decision sets the packet mark: %s", line)
+		}
+	}
+}
+
 // A table that only guards, or only refuses BitTorrent, classifies nothing: no
 // chain may touch a connection's mark.
 func TestRenderGuardOnlyLeavesMarksAlone(t *testing.T) {

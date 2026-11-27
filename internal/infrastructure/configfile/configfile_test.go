@@ -43,6 +43,34 @@ func TestShippedConfigLoads(t *testing.T) {
 	if rule.Action != (policy.Action{Kind: policy.ActionExit, Exit: "warp"}) || rule.Fallback != policy.ActionBlock {
 		t.Errorf("rule = %+v", rule)
 	}
+	if !cfg.DNS.Failover {
+		t.Error("omitted dns.failover must stay enabled")
+	}
+}
+
+// A missing dns.failover key keeps failover on. An explicit false turns it
+// off, and an explicit true leaves it on.
+func TestDNSFailover(t *testing.T) {
+	tests := []struct {
+		name string
+		tail string
+		want bool
+	}{
+		{"omitted", "", true},
+		{"false", "dns:\n  failover: false\n", false},
+		{"true", "dns:\n  failover: true\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := configfile.Parse([]byte(minimal + tt.tail))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if cfg.DNS.Failover != tt.want {
+				t.Fatalf("failover = %t, want %t", cfg.DNS.Failover, tt.want)
+			}
+		})
+	}
 }
 
 const minimal = `

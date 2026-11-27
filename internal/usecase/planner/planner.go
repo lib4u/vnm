@@ -120,7 +120,7 @@ func planEgress(state *netstate.State, in Input) error {
 	if dns.Enabled() {
 		c.ResolverUID = in.Resolver.UID
 		state.Health.ResolverUp = in.Resolver.Up
-		if !c.Observe {
+		if !c.Observe && cfg.DNS.Failover {
 			c.Failover = failover(sets, decisions)
 		}
 	}

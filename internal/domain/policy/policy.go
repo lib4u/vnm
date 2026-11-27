@@ -217,6 +217,9 @@ type DNS struct {
 	Port uint16
 	// Upstreams answer the resolver. They are exempt from the policy.
 	Upstreams []netip.AddrPort
+	// Failover is resolved from the file. Omitted or true keeps a resolver
+	// outage on the failover verdict. Only an explicit false turns it off.
+	Failover bool
 }
 
 // GeoFiles are the URLs of the v2fly geo files that geoip: and geosite:

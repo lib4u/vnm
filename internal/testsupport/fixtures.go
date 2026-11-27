@@ -66,6 +66,8 @@ func Policy() policy.Config {
 		DNS: policy.DNS{
 			Port:      5353,
 			Upstreams: []netip.AddrPort{DNSUpstream},
+			// An omitted dns.failover key resolves to on.
+			Failover: true,
 		},
 		Uplinks: []string{"ens3"},
 		Exits: []policy.Exit{{

@@ -96,8 +96,13 @@ func toDomain(dto fileDTO) (policy.Config, error) {
 		Mode:    c.mode(dto.Mode),
 		Uplinks: dto.Uplinks,
 		Geo:     policy.GeoFiles{GeoIP: dto.Geo.GeoIP, GeoSite: dto.Geo.GeoSite},
-		DNS:     policy.DNS{Port: dto.DNS.Port, Upstreams: c.addrPorts("dns upstream", dto.DNS.Upstreams)},
-		Exempt:  c.prefixes("exempt", dto.Exempt),
+		DNS: policy.DNS{
+			Port:      dto.DNS.Port,
+			Upstreams: c.addrPorts("dns upstream", dto.DNS.Upstreams),
+			// Omitted or true keeps failover on. Only an explicit false turns it off.
+			Failover: dto.DNS.Failover == nil || *dto.DNS.Failover,
+		},
+		Exempt: c.prefixes("exempt", dto.Exempt),
 	}
 	for _, e := range dto.Exits {
 		cfg.Exits = append(cfg.Exits, c.exit(e))

@@ -51,6 +51,9 @@ type guardRuleDTO struct {
 type dnsDTO struct {
 	Port      uint16   `yaml:"port"`
 	Upstreams []string `yaml:"upstreams"`
+	// Failover is a pointer so a file that omits the key keeps failover on.
+	// A plain bool would be false when absent and would turn it off.
+	Failover *bool `yaml:"failover"`
 }
 
 type geoDTO struct {

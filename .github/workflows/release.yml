@@ -1,0 +1,53 @@
+name: release
+
+on:
+  pull_request:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install nftables
+        run: sudo apt-get update && sudo apt-get install -y nftables
+      - name: Test
+        run: make test
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install nftables
+        run: sudo apt-get update && sudo apt-get install -y nftables
+      - name: Test
+        run: make test
+      - name: Build static linux/amd64 binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: make build
+      - name: Checksum
+        run: |
+          cp bin/vnm vnm
+          sha256sum vnm > vnm.sha256
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" vnm vnm.sha256 --title "${GITHUB_REF_NAME}" --notes ""
